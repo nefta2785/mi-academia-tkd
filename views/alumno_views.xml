@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_taekwondo_alumno_list" model="ir.ui.view">
+        <field name="name">taekwondo.alumno.list</field>
+        <field name="model">taekwondo.alumno</field>
+        <field name="arch" type="xml">
+            <list string="Alumnos">
+                <field name="name"/>
+                <field name="cinta_actual"/>
+                <field name="fecha_ingreso"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_taekwondo_alumno_form" model="ir.ui.view">
+        <field name="name">taekwondo.alumno.form</field>
+        <field name="model">taekwondo.alumno</field>
+        <field name="arch" type="xml">
+            <form string="Alumno">
+                <sheet>
+                    <group>
+                        <field name="name"/>
+                        <field name="partner_id"/>
+                        <field name="fecha_nacimiento"/>
+                        <field name="telefono"/>
+                        <field name="contacto_emergencia_nombre"/>
+                        <field name="contacto_emergencia_telefono"/>
+                        <field name="cinta_actual"/>
+                        <field name="fecha_ingreso"/>
+                        <field name="activo"/>
+                        <field name="cuota_mensual" groups="mi_primer_modulo.group_academia_admin"/>
+                        <field name="ultimo_cobro_generado" groups="mi_primer_modulo.group_academia_admin"/>
+                    </group>
+                    <notebook>
+                        <page string="Exámenes de Cinta" name="examenes">
+                            <field name="examen_ids">
+                                <list editable="bottom">
+                                    <field name="fecha_examen"/>
+                                    <field name="cinta_evaluada"/>
+                                    <field name="sinodal"/>
+                                    <field name="resultado"/>
+                                    <field name="costo_examen"/>
+                                </list>
+                            </field>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_taekwondo_alumno" model="ir.actions.act_window">
+        <field name="name">Alumnos</field>
+        <field name="res_model">taekwondo.alumno</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <menuitem id="menu_taekwondo_alumno"
+        name="Alumnos"
+        parent="mi_primer_modulo.menu_mi_academia_root"
+        action="action_taekwondo_alumno"/>
+
+</odoo>

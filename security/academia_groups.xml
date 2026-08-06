@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="module_category_academia" model="ir.module.category">
+        <field name="name">Mi Academia</field>
+    </record>
+
+    <record id="privilege_academia" model="res.groups.privilege">
+        <field name="name">Mi Academia</field>
+        <field name="category_id" ref="module_category_academia"/>
+    </record>
+
+    <record id="group_academia_instructor" model="res.groups">
+        <field name="name">Instructor</field>
+        <field name="privilege_id" ref="privilege_academia"/>
+    </record>
+
+    <record id="group_academia_admin" model="res.groups">
+        <field name="name">Administrador de Academia</field>
+        <field name="privilege_id" ref="privilege_academia"/>
+        <field name="implied_ids" eval="[(4, ref('group_academia_instructor'))]"/>
+        <field name="user_ids" eval="[(4, ref('base.user_admin'))]"/>
+    </record>
+
+</odoo>

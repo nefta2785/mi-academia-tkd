@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_taekwondo_reporte_ganancias_list" model="ir.ui.view">
+        <field name="name">taekwondo.reporte_ganancias.list</field>
+        <field name="model">taekwondo.reporte_ganancias</field>
+        <field name="arch" type="xml">
+            <list string="Reportes de Ganancias">
+                <field name="fecha_inicio"/>
+                <field name="fecha_fin"/>
+                <field name="utilidad_neta"/>
+                <field name="parte_socio"/>
+                <field name="parte_propia"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_taekwondo_reporte_ganancias_form" model="ir.ui.view">
+        <field name="name">taekwondo.reporte_ganancias.form</field>
+        <field name="model">taekwondo.reporte_ganancias</field>
+        <field name="arch" type="xml">
+            <form string="Reporte de Ganancias">
+                <sheet>
+                    <group>
+                        <field name="fecha_inicio"/>
+                        <field name="fecha_fin"/>
+                        <field name="porcentaje_socio"/>
+                        <field name="gasto_fijo_mensual"/>
+                        <button name="action_calcular" type="object" string="Calcular" class="btn-primary" colspan="2"/>
+                    </group>
+                    <group>
+                        <field name="ingresos_totales"/>
+                        <field name="gastos_totales"/>
+                        <field name="costos_operativos_examen"/>
+                        <field name="ganancia_torneos"/>
+                        <field name="utilidad_neta"/>
+                        <field name="parte_socio"/>
+                        <field name="parte_propia"/>
+                        <field name="retiros_propio_total"/>
+                        <field name="retiros_socio_total"/>
+                        <field name="saldo_pendiente_propio"/>
+                        <field name="saldo_pendiente_socio"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_taekwondo_reporte_ganancias" model="ir.actions.act_window">
+        <field name="name">Reporte de Ganancias</field>
+        <field name="res_model">taekwondo.reporte_ganancias</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <menuitem id="menu_taekwondo_reporte_ganancias"
+        name="Reporte de Ganancias"
+        parent="mi_primer_modulo.menu_mi_academia_root"
+        action="action_taekwondo_reporte_ganancias"
+        groups="mi_primer_modulo.group_academia_admin"/>
+
+</odoo>

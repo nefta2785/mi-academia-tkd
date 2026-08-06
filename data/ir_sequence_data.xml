@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="seq_taekwondo_evento_examen" model="ir.sequence">
+        <field name="name">Evento de Examen</field>
+        <field name="code">taekwondo.evento_examen</field>
+        <field name="prefix">EVT-</field>
+        <field name="padding">4</field>
+    </record>
+
+    <record id="seq_taekwondo_examen" model="ir.sequence">
+        <field name="name">Examen</field>
+        <field name="code">taekwondo.examen</field>
+        <field name="prefix">EXM-</field>
+        <field name="padding">4</field>
+    </record>
+
+</odoo>

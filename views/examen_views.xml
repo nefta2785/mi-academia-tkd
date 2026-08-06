@@ -1,0 +1,130 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_taekwondo_examen_list" model="ir.ui.view">
+        <field name="name">taekwondo.examen.list</field>
+        <field name="model">taekwondo.examen</field>
+        <field name="arch" type="xml">
+            <list string="Exámenes" default_order="fecha_examen desc">
+                <field name="folio"/>
+                <field name="alumno_id"/>
+                <field name="fecha_examen"/>
+                <field name="cinta_evaluada"/>
+                <field name="sinodal"/>
+                <field name="resultado"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_taekwondo_examen_kanban" model="ir.ui.view">
+        <field name="name">taekwondo.examen.kanban</field>
+        <field name="model">taekwondo.examen</field>
+        <field name="arch" type="xml">
+            <kanban>
+                <field name="alumno_id"/>
+                <field name="folio"/>
+                <field name="cinta_evaluada"/>
+                <field name="fecha_examen"/>
+                <field name="resultado"/>
+                <templates>
+                    <t t-name="card">
+                        <main t-att-class="record.resultado.raw_value == 'aprobado' ? 'border-start border-4 border-success' :
+                                           record.resultado.raw_value == 'reprobado' ? 'border-start border-4 border-danger' :
+                                           'border-start border-4 border-secondary'">
+                            <field name="alumno_id" class="fw-bold fs-5"/>
+                            <div class="text-muted">
+                                <field name="folio"/>
+                            </div>
+                            <div>
+                                <field name="cinta_evaluada"/>
+                            </div>
+                            <div>
+                                <field name="fecha_examen"/>
+                            </div>
+                        </main>
+                    </t>
+                </templates>
+            </kanban>
+        </field>
+    </record>
+
+    <record id="view_taekwondo_examen_form" model="ir.ui.view">
+        <field name="name">taekwondo.examen.form</field>
+        <field name="model">taekwondo.examen</field>
+        <field name="arch" type="xml">
+            <form string="Examen">
+                <sheet>
+                    <group>
+                        <field name="folio" readonly="1"/>
+                        <field name="evento_id"/>
+                        <field name="alumno_id"/>
+                        <field name="fecha_examen"/>
+                        <field name="cinta_evaluada"/>
+                        <field name="sinodal"/>
+                        <field name="resultado"/>
+                        <field name="costo_examen" groups="mi_primer_modulo.group_academia_admin"/>
+                        <button name="action_generar_factura_examen" type="object"
+                            string="Generar Factura de Cobro" class="btn-primary"
+                            colspan="2"
+                            groups="mi_primer_modulo.group_academia_admin"/>
+                        <field name="factura_id" readonly="1" groups="mi_primer_modulo.group_academia_admin"/>
+                        <field name="costo_sinodal" groups="mi_primer_modulo.group_academia_admin"/>
+                        <field name="costo_institucion" groups="mi_primer_modulo.group_academia_admin"/>
+                        <field name="costo_tabla" groups="mi_primer_modulo.group_academia_admin"/>
+                        <field name="costo_cinta" groups="mi_primer_modulo.group_academia_admin"/>
+                        <field name="ganancia_examen" readonly="1" groups="mi_primer_modulo.group_academia_admin"/>
+                        <field name="notas_sinodal"/>
+                    </group>
+                    <notebook>
+                        <page string="Criterios de Calificación" name="criterios">
+                            <field name="criterios_ids">
+                                <list editable="bottom" create="false" delete="false">
+                                    <field name="categoria"/>
+                                    <field name="calificacion"/>
+                                    <field name="comentario"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Aditamentos" name="aditamentos" groups="mi_primer_modulo.group_academia_admin">
+                            <field name="aditamentos_ids">
+                                <list editable="bottom">
+                                    <field name="concepto"/>
+                                    <field name="costo"/>
+                                </list>
+                            </field>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_taekwondo_examen_search" model="ir.ui.view">
+        <field name="name">taekwondo.examen.search</field>
+        <field name="model">taekwondo.examen</field>
+        <field name="arch" type="xml">
+            <search string="Buscar Exámenes">
+                <field name="alumno_id"/>
+                <field name="folio"/>
+                <field name="sinodal"/>
+                <filter name="filter_hoy" string="Hoy" domain="[('fecha_examen', '=', 'today')]"/>
+                <separator/>
+                <filter name="group_by_evento" string="Evento" context="{'group_by': 'evento_id'}"/>
+                <filter name="group_by_resultado" string="Resultado" context="{'group_by': 'resultado'}"/>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_taekwondo_examen" model="ir.actions.act_window">
+        <field name="name">Exámenes</field>
+        <field name="res_model">taekwondo.examen</field>
+        <field name="view_mode">kanban,list,form</field>
+        <field name="search_view_id" ref="view_taekwondo_examen_search"/>
+    </record>
+
+    <menuitem id="menu_taekwondo_examen"
+        name="Exámenes"
+        parent="mi_primer_modulo.menu_mi_academia_root"
+        action="action_taekwondo_examen"/>
+
+</odoo>

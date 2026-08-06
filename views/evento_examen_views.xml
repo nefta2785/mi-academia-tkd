@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_taekwondo_evento_examen_list" model="ir.ui.view">
+        <field name="name">taekwondo.evento_examen.list</field>
+        <field name="model">taekwondo.evento_examen</field>
+        <field name="arch" type="xml">
+            <list string="Eventos de Examen">
+                <field name="folio"/>
+                <field name="fecha_evento"/>
+                <field name="descripcion"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_taekwondo_evento_examen_form" model="ir.ui.view">
+        <field name="name">taekwondo.evento_examen.form</field>
+        <field name="model">taekwondo.evento_examen</field>
+        <field name="arch" type="xml">
+            <form string="Evento de Examen">
+                <sheet>
+                    <group>
+                        <field name="folio" readonly="1"/>
+                        <field name="fecha_evento"/>
+                        <field name="descripcion"/>
+                    </group>
+                    <notebook>
+                        <page string="Exámenes" name="examenes">
+                            <field name="examenes_ids" context="{'default_fecha_examen': fecha_evento}">
+                                <list editable="bottom">
+                                    <field name="alumno_id"/>
+                                    <field name="fecha_examen"/>
+                                    <field name="cinta_evaluada"/>
+                                    <field name="resultado"/>
+                                </list>
+                            </field>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_taekwondo_evento_examen" model="ir.actions.act_window">
+        <field name="name">Eventos de Examen</field>
+        <field name="res_model">taekwondo.evento_examen</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <menuitem id="menu_taekwondo_evento_examen"
+        name="Eventos de Examen"
+        parent="mi_primer_modulo.menu_mi_academia_root"
+        action="action_taekwondo_evento_examen"/>
+
+</odoo>

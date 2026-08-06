@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_taekwondo_torneo_participacion_list" model="ir.ui.view">
+        <field name="name">taekwondo.torneo_participacion.list</field>
+        <field name="model">taekwondo.torneo_participacion</field>
+        <field name="arch" type="xml">
+            <list string="Torneos">
+                <field name="alumno_id"/>
+                <field name="nombre_torneo"/>
+                <field name="fecha"/>
+                <field name="costo"/>
+                <field name="precio"/>
+                <field name="ganancia"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_taekwondo_torneo_participacion_form" model="ir.ui.view">
+        <field name="name">taekwondo.torneo_participacion.form</field>
+        <field name="model">taekwondo.torneo_participacion</field>
+        <field name="arch" type="xml">
+            <form string="Torneo">
+                <sheet>
+                    <group>
+                        <field name="alumno_id"/>
+                        <field name="nombre_torneo"/>
+                        <field name="fecha"/>
+                        <field name="costo"/>
+                        <field name="precio"/>
+                        <field name="ganancia" readonly="1"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_taekwondo_torneo_participacion" model="ir.actions.act_window">
+        <field name="name">Torneos</field>
+        <field name="res_model">taekwondo.torneo_participacion</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <menuitem id="menu_taekwondo_torneo_participacion"
+        name="Torneos"
+        parent="mi_primer_modulo.menu_mi_academia_root"
+        action="action_taekwondo_torneo_participacion"
+        groups="mi_primer_modulo.group_academia_admin"/>
+
+</odoo>

@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_taekwondo_dashboard_form" model="ir.ui.view">
+        <field name="name">taekwondo.dashboard.form</field>
+        <field name="model">taekwondo.dashboard</field>
+        <field name="arch" type="xml">
+            <form string="Dashboard">
+                <sheet>
+                    <div class="o_horizontal_separator">Este mes</div>
+                    <div class="row mt-3">
+                        <div class="col-6 col-md-3">
+                            <label for="ingresos_mes" class="text-muted d-block"/>
+                            <field name="ingresos_mes" readonly="1" class="fs-2 fw-bold"/>
+                        </div>
+                        <div class="col-6 col-md-3">
+                            <label for="utilidad_neta_mes" class="text-muted d-block"/>
+                            <field name="utilidad_neta_mes" readonly="1" class="fs-2 fw-bold"/>
+                        </div>
+                        <div class="col-6 col-md-3">
+                            <label for="facturas_pendientes_cantidad" class="text-muted d-block"/>
+                            <field name="facturas_pendientes_cantidad" readonly="1" class="fs-2 fw-bold"/>
+                        </div>
+                        <div class="col-6 col-md-3">
+                            <label for="facturas_pendientes_monto" class="text-muted d-block"/>
+                            <field name="facturas_pendientes_monto" readonly="1" class="fs-2 fw-bold"/>
+                        </div>
+                    </div>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_taekwondo_dashboard" model="ir.actions.act_window">
+        <field name="name">Dashboard</field>
+        <field name="res_model">taekwondo.dashboard</field>
+        <field name="view_mode">form</field>
+        <field name="target">current</field>
+    </record>
+
+    <menuitem id="menu_mi_academia_root" name="Mi Academia"
+        action="action_taekwondo_dashboard"/>
+
+    <menuitem id="menu_taekwondo_dashboard"
+        name="Dashboard"
+        parent="menu_mi_academia_root"
+        action="action_taekwondo_dashboard"
+        sequence="1"/>
+
+</odoo>

@@ -1,0 +1,10 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_taekwondo_alumno_user,taekwondo.alumno.user,model_taekwondo_alumno,base.group_user,1,1,1,1
+access_taekwondo_examen_user,taekwondo.examen.user,model_taekwondo_examen,base.group_user,1,1,1,1
+access_taekwondo_criterio_calificacion_user,taekwondo.criterio_calificacion.user,model_taekwondo_criterio_calificacion,base.group_user,1,1,1,1
+access_taekwondo_evento_examen_user,taekwondo.evento_examen.user,model_taekwondo_evento_examen,base.group_user,1,1,1,1
+access_taekwondo_reporte_ganancias_admin,taekwondo.reporte_ganancias.admin,model_taekwondo_reporte_ganancias,mi_primer_modulo.group_academia_admin,1,1,1,1
+access_taekwondo_retiro_socio_admin,taekwondo.retiro_socio.admin,model_taekwondo_retiro_socio,mi_primer_modulo.group_academia_admin,1,1,1,1
+access_taekwondo_examen_aditamento_user,taekwondo.examen_aditamento.user,model_taekwondo_examen_aditamento,base.group_user,1,1,1,1
+access_taekwondo_torneo_participacion_admin,taekwondo.torneo_participacion.admin,model_taekwondo_torneo_participacion,mi_primer_modulo.group_academia_admin,1,1,1,1
+access_taekwondo_dashboard_user,taekwondo.dashboard.user,model_taekwondo_dashboard,base.group_user,1,0,1,0
