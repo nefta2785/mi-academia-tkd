@@ -19,6 +19,9 @@
         <field name="arch" type="xml">
             <form string="Evento de Examen">
                 <sheet>
+                    <button name="action_abrir_tablero" type="object"
+                        string="Abrir Tablero de Calificación"
+                        class="btn-primary mb-3"/>
                     <group>
                         <field name="folio" readonly="1"/>
                         <field name="fecha_evento"/>

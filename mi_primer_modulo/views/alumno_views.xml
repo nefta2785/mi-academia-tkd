@@ -19,13 +19,15 @@
         <field name="arch" type="xml">
             <form string="Alumno">
                 <sheet>
+                    <field name="foto" widget="image" class="oe_avatar" options="{'preview_image': 'foto'}"/>
                     <group>
                         <field name="name"/>
+                        <field name="id_alumno"/>
                         <field name="partner_id"/>
                         <field name="fecha_nacimiento"/>
                         <field name="telefono"/>
-                        <field name="contacto_emergencia_nombre"/>
-                        <field name="contacto_emergencia_telefono"/>
+                        <field name="contacto_emergencia_nombre" invisible="1"/>
+                        <field name="contacto_emergencia_telefono" invisible="1"/>
                         <field name="cinta_actual"/>
                         <field name="fecha_ingreso"/>
                         <field name="activo"/>

@@ -26,12 +26,16 @@
                 <field name="cinta_evaluada"/>
                 <field name="fecha_examen"/>
                 <field name="resultado"/>
+                <field name="mejor_examen"/>
                 <templates>
                     <t t-name="card">
                         <main t-att-class="record.resultado.raw_value == 'aprobado' ? 'border-start border-4 border-success' :
                                            record.resultado.raw_value == 'reprobado' ? 'border-start border-4 border-danger' :
                                            'border-start border-4 border-secondary'">
-                            <field name="alumno_id" class="fw-bold fs-5"/>
+                            <div class="d-flex align-items-center">
+                                <field name="alumno_id" class="fw-bold fs-5"/>
+                                <i class="fa fa-star text-warning ms-2" title="Mejor Examen" invisible="not mejor_examen"/>
+                            </div>
                             <div class="text-muted">
                                 <field name="folio"/>
                             </div>
@@ -54,6 +58,9 @@
         <field name="arch" type="xml">
             <form string="Examen">
                 <sheet>
+                    <div class="mb-2">
+                        <span class="badge text-bg-warning fs-6" invisible="not mejor_examen">⭐ Mejor Examen</span>
+                    </div>
                     <group>
                         <field name="folio" readonly="1"/>
                         <field name="evento_id"/>
@@ -85,14 +92,6 @@
                                 </list>
                             </field>
                         </page>
-                        <page string="Aditamentos" name="aditamentos" groups="mi_primer_modulo.group_academia_admin">
-                            <field name="aditamentos_ids">
-                                <list editable="bottom">
-                                    <field name="concepto"/>
-                                    <field name="costo"/>
-                                </list>
-                            </field>
-                        </page>
                     </notebook>
                 </sheet>
             </form>
@@ -118,7 +117,7 @@
     <record id="action_taekwondo_examen" model="ir.actions.act_window">
         <field name="name">Exámenes</field>
         <field name="res_model">taekwondo.examen</field>
-        <field name="view_mode">kanban,list,form</field>
+        <field name="view_mode">list,kanban,form</field>
         <field name="search_view_id" ref="view_taekwondo_examen_search"/>
     </record>
 

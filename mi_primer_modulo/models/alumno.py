@@ -2,7 +2,7 @@ import calendar
 import logging
 from datetime import date
 
-from odoo import fields, models
+from odoo import api, fields, models
 
 _logger = logging.getLogger(__name__)
 
@@ -12,12 +12,15 @@ class TaekwondoAlumno(models.Model):
     _description = 'Alumno de la academia'
 
     name = fields.Char(string='Nombre completo', required=True)
+    id_alumno = fields.Char(string='ID Alumno')
+    foto = fields.Image(string='Foto', max_width=1024, max_height=1024)
     partner_id = fields.Many2one(
         comodel_name='res.partner',
         string='Contacto de facturación',
         required=True,
     )
     fecha_nacimiento = fields.Date(string='Fecha de nacimiento')
+    edad = fields.Integer(compute='_compute_edad', string='Edad')
     telefono = fields.Char(string='Teléfono')
     contacto_emergencia_nombre = fields.Char(string='Nombre del contacto de emergencia')
     contacto_emergencia_telefono = fields.Char(string='Teléfono de emergencia')
@@ -52,6 +55,17 @@ class TaekwondoAlumno(models.Model):
         readonly=True,
         copy=False,
     )
+
+    @api.depends('fecha_nacimiento')
+    def _compute_edad(self):
+        hoy = fields.Date.context_today(self)
+        for alumno in self:
+            if not alumno.fecha_nacimiento:
+                alumno.edad = 0
+                continue
+            nacimiento = alumno.fecha_nacimiento
+            cumplio_este_anio = (hoy.month, hoy.day) >= (nacimiento.month, nacimiento.day)
+            alumno.edad = hoy.year - nacimiento.year - (0 if cumplio_este_anio else 1)
 
     def _cron_generar_facturas_mensuales(self):
         hoy = fields.Date.context_today(self)

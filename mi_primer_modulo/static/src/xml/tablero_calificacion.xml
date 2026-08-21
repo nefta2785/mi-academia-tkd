@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+    <t t-name="mi_primer_modulo.TableroCalificacion">
+        <div class="p-3" style="height: 100%; overflow-y: auto;">
+            <div t-if="state.cargando">Cargando información del evento...</div>
+            <div t-else="" class="d-flex" style="align-items: flex-start;">
+
+                <div style="width: 300px; flex-shrink: 0;" class="border-end pe-3 me-3">
+                    <h4>Roster</h4>
+                    <div class="btn-group mb-3" role="group">
+                        <button type="button"
+                            t-att-class="'btn btn-sm ' + (state.ordenPor === 'edad' ? 'btn-primary' : 'btn-outline-secondary')"
+                            t-on-click="() => this.ordenarPor('edad')">Edad</button>
+                        <button type="button"
+                            t-att-class="'btn btn-sm ' + (state.ordenPor === 'cinta' ? 'btn-primary' : 'btn-outline-secondary')"
+                            t-on-click="() => this.ordenarPor('cinta')">Cinta</button>
+                    </div>
+
+                    <div t-foreach="rosterOrdenado" t-as="item" t-key="item.examenId"
+                        class="d-flex align-items-center mb-2">
+                        <img t-if="item.foto"
+                            t-att-src="'data:image/png;base64,' + item.foto"
+                            class="rounded-circle me-2"
+                            style="width: 36px; height: 36px; object-fit: cover;"/>
+                        <div t-else=""
+                            class="rounded-circle bg-light d-flex align-items-center justify-content-center me-2"
+                            style="width: 36px; height: 36px; flex-shrink: 0;">
+                            <i class="fa fa-user text-muted"/>
+                        </div>
+                        <div class="flex-grow-1">
+                            <div t-esc="item.name"/>
+                            <small class="text-muted">
+                                <t t-esc="item.edad"/> años · <t t-esc="item.cintaEvaluadaLabel"/>
+                            </small>
+                        </div>
+                        <button type="button" class="btn btn-sm btn-primary"
+                            t-att-disabled="state.mesa.includes(item.examenId)"
+                            t-on-click="() => this.agregarAMesa(item.examenId)">+</button>
+                    </div>
+                </div>
+
+                <div class="flex-grow-1">
+                    <h4>Mesa de calificación</h4>
+                    <div t-if="!state.mesa.length" class="text-muted">
+                        Agrega alumnos del roster con el botón "+" para empezar a calificar.
+                    </div>
+
+                    <div t-elif="state.expandido === null" class="d-flex flex-wrap" style="gap: 12px;">
+                        <div t-foreach="state.mesa" t-as="examenId" t-key="examenId"
+                            t-att-class="'border border-2 rounded position-relative p-2 ' +
+                                (rosterPorExamenId[examenId].resultado === 'aprobado' ? 'border-success' :
+                                 rosterPorExamenId[examenId].resultado === 'reprobado' ? 'border-danger' :
+                                 'border-secondary')"
+                            style="width: 220px; cursor: pointer;"
+                            t-on-click="() => this.expandir(examenId)">
+                            <t t-set="item" t-value="rosterPorExamenId[examenId]"/>
+                            <span t-if="item.mejorExamen"
+                                class="position-absolute top-0 start-0 m-1"
+                                style="color: #ffc107; font-size: 1.1rem;">★</span>
+                            <button type="button"
+                                class="btn btn-sm btn-outline-danger position-absolute top-0 end-0 m-1"
+                                t-on-click.stop="() => this.quitarDeMesa(examenId)">x</button>
+                            <small class="position-absolute bottom-0 end-0 m-1 text-muted"
+                                t-esc="(state.progreso[examenId] || 0) + '/4'"/>
+                            <div class="d-flex align-items-center">
+                                <img t-if="item.foto"
+                                    t-att-src="'data:image/png;base64,' + item.foto"
+                                    class="rounded-circle me-2"
+                                    style="width: 40px; height: 40px; object-fit: cover;"/>
+                                <div t-else=""
+                                    class="rounded-circle bg-light d-flex align-items-center justify-content-center me-2"
+                                    style="width: 40px; height: 40px; flex-shrink: 0;">
+                                    <i class="fa fa-user text-muted"/>
+                                </div>
+                                <div>
+                                    <div t-esc="item.name"/>
+                                    <small class="text-muted" t-esc="item.cintaEvaluadaLabel"/>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div t-else="">
+                        <button type="button" class="btn btn-secondary mb-3"
+                            t-on-click="() => this.regresar()">← Regresar</button>
+                        <div class="border rounded">
+                            <PanelCalificacion examenId="state.expandido"
+                                onGuardado="(examenId) => this.onCriterioGuardado(examenId)"
+                                onResultadoCambiado="(examenId, valor) => this.onResultadoCambiado(examenId, valor)"
+                                onMejorExamenCambiado="(examenId, valor) => this.onMejorExamenCambiado(examenId, valor)"/>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </t>
+</templates>

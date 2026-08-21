@@ -16,6 +16,12 @@
         'views/torneo_views.xml',
         'data/cron_mensualidad.xml',
     ],
+    'assets': {
+        'web.assets_backend': [
+            'mi_primer_modulo/static/src/js/**/*.js',
+            'mi_primer_modulo/static/src/xml/**/*.xml',
+        ],
+    },
     'installable': True,
     'application': True,
 }
