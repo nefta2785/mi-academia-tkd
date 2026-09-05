@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+    <t t-name="mi_primer_modulo.PanelCalificacion">
+        <div class="p-4">
+            <div t-if="state.cargando">Cargando examen...</div>
+            <div t-else="">
+                <div class="d-flex align-items-center mb-4">
+                    <img t-if="state.alumno.foto"
+                        t-att-src="'data:image/png;base64,' + state.alumno.foto"
+                        class="rounded-circle me-3"
+                        style="width: 90px; height: 90px; object-fit: cover;"/>
+                    <div t-else=""
+                        class="rounded-circle bg-light d-flex align-items-center justify-content-center me-3"
+                        style="width: 90px; height: 90px;">
+                        <i class="fa fa-user fa-2x text-muted"/>
+                    </div>
+                    <div>
+                        <div class="d-flex align-items-center">
+                            <h2 class="mb-0" t-esc="state.alumno.name"/>
+                            <span t-if="state.mensajeGuardado"
+                                class="ms-3"
+                                style="color: #28a745; font-size: 0.9rem; font-weight: 600;">✓ Guardado</span>
+                        </div>
+                        <div class="text-muted mb-2">
+                            <span>Edad: <t t-esc="state.alumno.edad"/> años</span>
+                            <span class="mx-2">|</span>
+                            <span>Cinta evaluada: <t t-esc="state.cintaEvaluada"/></span>
+                        </div>
+                        <div class="d-flex flex-wrap" style="gap: 12px;" role="group">
+                            <button t-foreach="opcionesResultado" t-as="opcion" t-key="opcion.valor"
+                                type="button"
+                                t-att-class="'btn btn-lg ' + (state.resultado === opcion.valor ? 'btn-primary' : 'btn-outline-secondary')"
+                                style="min-height: 44px; padding: 0.6rem 1.5rem; font-size: 1.1rem;"
+                                t-on-click="() => this.marcarResultado(opcion.valor)"
+                                t-esc="opcion.etiqueta"/>
+                            <button type="button"
+                                t-att-class="'btn btn-lg ' + (state.mejorExamen ? 'btn-warning' : 'btn-outline-secondary')"
+                                style="min-height: 44px; padding: 0.6rem 1.5rem; font-size: 1.1rem;"
+                                t-on-click="() => this.alternarMejorExamen()">★ Mejor Examen</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div t-foreach="state.criterios" t-as="criterio" t-key="criterio.id" class="card mb-3">
+                    <div class="card-body">
+                        <h5 t-esc="getEtiquetaCategoria(criterio.categoria)"/>
+                        <div class="d-flex flex-wrap mb-3" style="gap: 12px;" role="group">
+                            <button t-foreach="opcionesCalificacion" t-as="opcion" t-key="opcion.valor"
+                                type="button"
+                                t-att-class="'btn btn-lg ' + (criterio.calificacion === opcion.valor ? 'btn-primary' : 'btn-outline-secondary')"
+                                style="min-height: 44px; padding: 0.6rem 1.5rem; font-size: 1.1rem;"
+                                t-on-click="() => this.calificar(criterio, opcion.valor)"
+                                t-esc="opcion.etiqueta"/>
+                        </div>
+                        <textarea class="form-control"
+                            placeholder="Comentario del sinodal..."
+                            t-model="criterio.comentario"
+                            t-on-blur="(ev) => this.guardarComentario(criterio, ev)"/>
+                    </div>
+                </div>
+
+                <div class="card mb-3">
+                    <div class="card-body">
+                        <h5>Notas generales del sinodal</h5>
+                        <textarea class="form-control"
+                            placeholder="Observaciones generales sobre el examen completo..."
+                            t-model="state.notasSinodal"
+                            t-on-blur="(ev) => this.guardarNotasSinodal(ev)"/>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </t>
+</templates>

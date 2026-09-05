@@ -5,6 +5,7 @@ from odoo.exceptions import UserError
 class TaekwondoExamen(models.Model):
     _name = 'taekwondo.examen'
     _description = 'Examen de cinta'
+    _rec_name = 'folio'
 
     folio = fields.Char(string='Folio', readonly=True, copy=False, default=lambda self: 'Nuevo')
     evento_id = fields.Many2one(
@@ -51,6 +52,7 @@ class TaekwondoExamen(models.Model):
         default='pendiente',
     )
     notas_sinodal = fields.Text(string='Notas del sinodal')
+    mejor_examen = fields.Boolean(string='Mejor Examen', default=False)
     costo_examen = fields.Float(string='Costo del examen')
     costo_sinodal = fields.Float(string='Pago a sinodal', default=0.0)
     costo_institucion = fields.Float(string='Pago a institución', default=0.0)
