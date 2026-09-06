@@ -1,4 +1,4 @@
-import { Component, onWillStart, useState } from "@odoo/owl";
+import { Component, onWillStart, onWillUnmount, useRef, useState } from "@odoo/owl";
 import { registry } from "@web/core/registry";
 import { useService } from "@web/core/utils/hooks";
 import { standardActionServiceProps } from "@web/webclient/actions/action_service";
@@ -14,6 +14,26 @@ const ORDEN_CINTAS = [
 ];
 const RANGO_CINTA = Object.fromEntries(ORDEN_CINTAS.map((cinta, indice) => [cinta, indice]));
 
+// resultado ya viene en español desde el modelo (aprobado/reprobado/pendiente),
+// así que basta un mapeo fijo de despliegue - a diferencia de cinta_evaluada,
+// aquí no hace falta pedirle la Selection al servidor vía fields_get.
+const RESULTADO_LABELS = {
+    aprobado: "Aprobado",
+    reprobado: "Reprobado",
+    pendiente: "Pendiente",
+};
+
+// Geometría de la "mesa": un lienzo de posición libre donde el sinodal
+// arrastra las tarjetas para reproducir la distribución física real de los
+// alumnos durante el examen. Es una vista PERSONAL: no se sincroniza entre
+// distintos sinodales/dispositivos.
+const ANCHO_TARJETA = 360;
+const ALTO_TARJETA = 140;      // huella aproximada de una tarjeta colapsada
+const ANCHO_LIENZO = 1400;
+const ALTO_LIENZO_MAX = 3000;
+const SEPARACION = 16;
+const HOLGURA_ENCIMADO = 40;   // px de traslape tolerado antes de considerar "encimadas"
+
 export class TableroCalificacion extends Component {
     static template = "mi_primer_modulo.TableroCalificacion";
     static components = { PanelCalificacion };
@@ -23,15 +43,30 @@ export class TableroCalificacion extends Component {
 
     setup() {
         this.orm = useService("orm");
+        this.lienzoRef = useRef("lienzo");
+        this.ANCHO_LIENZO = ANCHO_LIENZO;
 
         this.state = useState({
             cargando: true,
             roster: [],
-            mesa: [],
             ordenPor: "edad",
+            rosterColapsado: false,
+            // 'mesa': exámenes en la mesa. 'posiciones': {examenId: {x, y}} en px
+            // dentro del lienzo. 'tarjetasAbiertas': cuáles muestran el panel
+            // completo inline. 'expandido': tarjeta a pantalla completa, o null.
+            // 'arrastrando': examenId que se está arrastrando (para el z-index).
+            mesa: [],
+            posiciones: {},
+            tarjetasAbiertas: [],
             expandido: null,
+            arrastrando: null,
             progreso: {},
         });
+
+        // Estado vivo del arrastre en curso + listeners globales estables.
+        this._arrastre = null;
+        this._onMove = (ev) => this._alMover(ev);
+        this._onUp = (ev) => this._alSoltar(ev);
 
         onWillStart(async () => {
             const eventoId = this.props.action.params.evento_id;
@@ -39,7 +74,10 @@ export class TableroCalificacion extends Component {
             const examenes = await this.orm.searchRead(
                 "taekwondo.examen",
                 [["evento_id", "=", eventoId]],
-                ["alumno_id", "cinta_evaluada", "resultado", "mejor_examen"]
+                [
+                    "alumno_id", "cinta_evaluada", "resultado", "mejor_examen",
+                    "posicion_x", "posicion_y",
+                ]
             );
 
             const alumnoIds = [...new Set(examenes.map((examen) => examen.alumno_id[0]))];
@@ -100,9 +138,27 @@ export class TableroCalificacion extends Component {
             }
             this.state.progreso = progreso;
 
+            // Restaurar la mesa personal: todo examen con posición guardada
+            // (x o y != 0) vuelve a la mesa, colapsado, donde se dejó.
+            const mesa = [];
+            const posiciones = {};
+            for (const examen of examenes) {
+                if (examen.posicion_x || examen.posicion_y) {
+                    mesa.push(examen.id);
+                    posiciones[examen.id] = { x: examen.posicion_x, y: examen.posicion_y };
+                }
+            }
+            this.state.mesa = mesa;
+            this.state.posiciones = posiciones;
+            this._corregirEncimados();
+
             this.state.cargando = false;
         });
+
+        onWillUnmount(() => this._quitarListenersGlobales());
     }
+
+    // ---- roster / orden --------------------------------------------------
 
     get rosterOrdenado() {
         // Copiamos el arreglo antes de ordenar: sort() ordena "en el lugar",
@@ -126,6 +182,49 @@ export class TableroCalificacion extends Component {
         this.state.ordenPor = criterio;
     }
 
+    alternarRoster() {
+        this.state.rosterColapsado = !this.state.rosterColapsado;
+    }
+
+    // ---- mesa: agregar / quitar / abrir / expandir ---------------------
+
+    agregarAMesa(examenId) {
+        if (this.state.mesa.includes(examenId)) {
+            return;
+        }
+        // Si ya tenía posición (el sinodal lo había acomodado y luego lo
+        // quitó), se respeta y reaparece ahí. Solo si nunca tuvo posición
+        // se le asigna un hueco automático.
+        if (!this.state.posiciones[examenId]) {
+            this.state.posiciones[examenId] = this._siguienteSlot();
+        }
+        this.state.mesa.push(examenId);
+    }
+
+    quitarDeMesa(examenId) {
+        // "Quitar" es PURAMENTE VISUAL: solo saca el examenId del arreglo
+        // 'mesa'. NO se borra 'state.posiciones[examenId]' ni se toca
+        // posicion_x/posicion_y en el servidor, para que al volver a agregar
+        // al alumno con "+" reaparezca exactamente donde el sinodal lo dejó.
+        this.state.mesa = this.state.mesa.filter((id) => id !== examenId);
+        this.state.tarjetasAbiertas = this.state.tarjetasAbiertas.filter((id) => id !== examenId);
+        if (this.state.expandido === examenId) {
+            this.state.expandido = null;
+        }
+    }
+
+    estaAbierta(examenId) {
+        return this.state.tarjetasAbiertas.includes(examenId);
+    }
+
+    alternarTarjeta(examenId) {
+        if (this.state.tarjetasAbiertas.includes(examenId)) {
+            this.state.tarjetasAbiertas = this.state.tarjetasAbiertas.filter((id) => id !== examenId);
+        } else {
+            this.state.tarjetasAbiertas.push(examenId);
+        }
+    }
+
     expandir(examenId) {
         this.state.expandido = examenId;
     }
@@ -134,15 +233,179 @@ export class TableroCalificacion extends Component {
         this.state.expandido = null;
     }
 
-    agregarAMesa(examenId) {
-        if (!this.state.mesa.includes(examenId)) {
-            this.state.mesa.push(examenId);
+    etiquetaResultado(valor) {
+        return RESULTADO_LABELS[valor] || valor;
+    }
+
+    // ---- geometría del lienzo -----------------------------------------
+
+    get altoLienzo() {
+        let maxAbajo = 700;
+        for (const id of this.state.mesa) {
+            const p = this.state.posiciones[id];
+            if (!p) {
+                continue;
+            }
+            const alto = this.estaAbierta(id) ? 720 : ALTO_TARJETA;
+            maxAbajo = Math.max(maxAbajo, p.y + alto);
+        }
+        return Math.min(maxAbajo + 80, ALTO_LIENZO_MAX);
+    }
+
+    posicionTarjeta(examenId) {
+        const p = this.state.posiciones[examenId] || { x: 0, y: 0 };
+        let z = 10;
+        if (this.state.arrastrando === examenId) {
+            z = 30;
+        } else if (this.estaAbierta(examenId)) {
+            z = 20;
+        }
+        return `left:${p.x}px; top:${p.y}px; width:${ANCHO_TARJETA}px; z-index:${z};`;
+    }
+
+    _choca(x, y, colocadas) {
+        return colocadas.some(
+            (c) =>
+                Math.abs(c.x - x) < ANCHO_TARJETA - HOLGURA_ENCIMADO &&
+                Math.abs(c.y - y) < ALTO_TARJETA - HOLGURA_ENCIMADO
+        );
+    }
+
+    _limitar(x, y) {
+        const maxX = Math.max(0, ANCHO_LIENZO - ANCHO_TARJETA);
+        const maxY = Math.max(0, this.altoLienzo - ALTO_TARJETA);
+        return [Math.max(0, Math.min(x, maxX)), Math.max(0, Math.min(y, maxY))];
+    }
+
+    _siguienteSlot() {
+        const colocadas = this.state.mesa
+            .map((id) => this.state.posiciones[id])
+            .filter(Boolean);
+        const cols = Math.max(1, Math.floor(ANCHO_LIENZO / (ANCHO_TARJETA + SEPARACION)));
+        for (let fila = 0; fila < 60; fila++) {
+            for (let col = 0; col < cols; col++) {
+                const x = col * (ANCHO_TARJETA + SEPARACION);
+                const y = fila * (ALTO_TARJETA + SEPARACION);
+                if (!this._choca(x, y, colocadas)) {
+                    return { x, y };
+                }
+            }
+        }
+        return { x: 0, y: 0 };
+    }
+
+    _espacioLibreCercano(x, y, colocadas) {
+        if (!this._choca(x, y, colocadas)) {
+            return { x, y };
+        }
+        const paso = 30;
+        for (let radio = 1; radio <= 60; radio++) {
+            for (let dx = -radio; dx <= radio; dx++) {
+                for (let dy = -radio; dy <= radio; dy++) {
+                    // solo el anillo exterior de este radio
+                    if (Math.abs(dx) !== radio && Math.abs(dy) !== radio) {
+                        continue;
+                    }
+                    const [nx, ny] = this._limitar(x + dx * paso, y + dy * paso);
+                    if (!this._choca(nx, ny, colocadas)) {
+                        return { x: nx, y: ny };
+                    }
+                }
+            }
+        }
+        return { x, y };
+    }
+
+    _corregirEncimados() {
+        // Al cargar posiciones guardadas: si dos tarjetas caen encimadas,
+        // reubica la segunda al espacio libre más cercano.
+        const colocadas = [];
+        for (const id of this.state.mesa) {
+            const p = this.state.posiciones[id];
+            if (!p) {
+                continue;
+            }
+            const [x0, y0] = this._limitar(p.x, p.y);
+            const libre = this._espacioLibreCercano(x0, y0, colocadas);
+            this.state.posiciones[id] = libre;
+            colocadas.push(libre);
         }
     }
 
-    quitarDeMesa(examenId) {
-        this.state.mesa = this.state.mesa.filter((id) => id !== examenId);
+    // ---- arrastre con Pointer Events (mouse + táctil) ------------------
+
+    alPresionar(ev, examenId) {
+        // Ignora botones secundarios del mouse (para toque/lápiz button es 0).
+        if (ev.button && ev.button !== 0) {
+            return;
+        }
+        const lienzo = this.lienzoRef.el;
+        if (!lienzo) {
+            return;
+        }
+        ev.preventDefault();
+        ev.stopPropagation();
+        const rect = lienzo.getBoundingClientRect();
+        const p = this.state.posiciones[examenId] || { x: 0, y: 0 };
+        this._arrastre = {
+            examenId,
+            pointerId: ev.pointerId,
+            // desfase entre el puntero y la esquina de la tarjeta
+            desfaseX: ev.clientX - rect.left - p.x,
+            desfaseY: ev.clientY - rect.top - p.y,
+            movido: false,
+        };
+        this.state.arrastrando = examenId;
+        // Listeners en window: no se pierde el puntero aunque el dedo/cursor
+        // salga de la tarjeta o esta se vuelva a renderizar.
+        window.addEventListener("pointermove", this._onMove, { passive: false });
+        window.addEventListener("pointerup", this._onUp);
+        window.addEventListener("pointercancel", this._onUp);
     }
+
+    _alMover(ev) {
+        const a = this._arrastre;
+        if (!a || ev.pointerId !== a.pointerId) {
+            return;
+        }
+        ev.preventDefault();
+        const rect = this.lienzoRef.el.getBoundingClientRect();
+        const [x, y] = this._limitar(
+            ev.clientX - rect.left - a.desfaseX,
+            ev.clientY - rect.top - a.desfaseY
+        );
+        a.movido = true;
+        this.state.posiciones[a.examenId] = { x, y };
+    }
+
+    async _alSoltar(ev) {
+        const a = this._arrastre;
+        if (!a || (ev.pointerId !== undefined && ev.pointerId !== a.pointerId)) {
+            return;
+        }
+        this._quitarListenersGlobales();
+        this._arrastre = null;
+        this.state.arrastrando = null;
+        if (!a.movido) {
+            return;
+        }
+        const p = this.state.posiciones[a.examenId];
+        // (0,0) es el centinela de "sin posición": si la tarjeta acabó justo
+        // ahí, la empujamos 1px para que sí se persista.
+        const x = p.x === 0 && p.y === 0 ? 1 : p.x;
+        await this.orm.write("taekwondo.examen", [a.examenId], {
+            posicion_x: x,
+            posicion_y: p.y,
+        });
+    }
+
+    _quitarListenersGlobales() {
+        window.removeEventListener("pointermove", this._onMove);
+        window.removeEventListener("pointerup", this._onUp);
+        window.removeEventListener("pointercancel", this._onUp);
+    }
+
+    // ---- callbacks del panel -----------------------------------------
 
     async onCriterioGuardado(examenId) {
         // Solo repreguntamos por ESTE examen (4 filas), no por todo el
