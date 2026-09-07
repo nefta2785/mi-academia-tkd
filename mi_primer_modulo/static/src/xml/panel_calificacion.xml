@@ -44,11 +44,14 @@
                 <div t-foreach="state.criterios" t-as="criterio" t-key="criterio.id" class="card mb-3">
                     <div class="card-body">
                         <h5 t-esc="getEtiquetaCategoria(criterio.categoria)"/>
-                        <div class="d-flex flex-wrap mb-3" style="gap: 12px;" role="group">
+                        <!-- Cuadrícula fija 2x2: las 4 opciones quedan siempre en
+                             dos columnas iguales, sin depender del largo del texto
+                             ("Muy Bueno" vs "Bueno") ni del ancho del contenedor. -->
+                        <div class="mb-3" style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;" role="group">
                             <button t-foreach="opcionesCalificacion" t-as="opcion" t-key="opcion.valor"
                                 type="button"
                                 t-att-class="'btn btn-lg ' + (criterio.calificacion === opcion.valor ? 'btn-primary' : 'btn-outline-secondary')"
-                                style="min-height: 44px; padding: 0.6rem 1.5rem; font-size: 1.1rem;"
+                                style="min-height: 44px; padding: 0.6rem 1rem; font-size: 1.1rem;"
                                 t-on-click="() => this.calificar(criterio, opcion.valor)"
                                 t-esc="opcion.etiqueta"/>
                         </div>

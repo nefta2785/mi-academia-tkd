@@ -28,11 +28,20 @@ const RESULTADO_LABELS = {
 // alumnos durante el examen. Es una vista PERSONAL: no se sincroniza entre
 // distintos sinodales/dispositivos.
 const ANCHO_TARJETA = 360;
-const ALTO_TARJETA = 140;      // huella aproximada de una tarjeta colapsada
+// Ancho de una tarjeta con el panel de calificación abierto inline. Arranca
+// en 1.75x (≈630px); si los 4 bloques de criterio se ven apretados se sube
+// a 2x cambiando solo el multiplicador.
+const ANCHO_TARJETA_ABIERTA = Math.round(ANCHO_TARJETA * 1.75);
+const ALTO_TARJETA = 140;          // huella aproximada de una tarjeta colapsada
+// Estimado FIJO del alto de una tarjeta abierta. NO se mide el DOM con
+// getBoundingClientRect: PanelCalificacion carga async y mediríamos el
+// placeholder "Cargando examen…", no el contenido final.
+const ALTO_TARJETA_ABIERTA = 720;
 const ANCHO_LIENZO = 1400;
+const ANCHO_LIENZO_MAX = 4000;
 const ALTO_LIENZO_MAX = 3000;
 const SEPARACION = 16;
-const HOLGURA_ENCIMADO = 40;   // px de traslape tolerado antes de considerar "encimadas"
+const HOLGURA_ENCIMADO = 40;       // px de traslape tolerado antes de considerar "encimadas"
 
 export class TableroCalificacion extends Component {
     static template = "mi_primer_modulo.TableroCalificacion";
@@ -44,19 +53,24 @@ export class TableroCalificacion extends Component {
     setup() {
         this.orm = useService("orm");
         this.lienzoRef = useRef("lienzo");
-        this.ANCHO_LIENZO = ANCHO_LIENZO;
 
         this.state = useState({
             cargando: true,
             roster: [],
             ordenPor: "edad",
             rosterColapsado: false,
-            // 'mesa': exámenes en la mesa. 'posiciones': {examenId: {x, y}} en px
-            // dentro del lienzo. 'tarjetasAbiertas': cuáles muestran el panel
-            // completo inline. 'expandido': tarjeta a pantalla completa, o null.
+            // 'mesa': exámenes en la mesa. 'posiciones': {examenId: {x, y}} en
+            // px dentro del lienzo = posición CANÓNICA, la que persiste en
+            // posicion_x/posicion_y y que SOLO cambia el drag-and-drop.
+            // 'posicionesTemporales': {examenId: {x, y}} desplazamiento SOLO
+            // visual de las vecinas que una tarjeta abierta empuja; nunca se
+            // persiste y se limpia en cuanto deja de haber conflicto.
+            // 'tarjetasAbiertas': cuáles muestran el panel completo inline.
+            // 'expandido': tarjeta a pantalla completa, o null.
             // 'arrastrando': examenId que se está arrastrando (para el z-index).
             mesa: [],
             posiciones: {},
+            posicionesTemporales: {},
             tarjetasAbiertas: [],
             expandido: null,
             arrastrando: null,
@@ -199,6 +213,7 @@ export class TableroCalificacion extends Component {
             this.state.posiciones[examenId] = this._siguienteSlot();
         }
         this.state.mesa.push(examenId);
+        this._reconciliarVecinas();
     }
 
     quitarDeMesa(examenId) {
@@ -211,6 +226,8 @@ export class TableroCalificacion extends Component {
         if (this.state.expandido === examenId) {
             this.state.expandido = null;
         }
+        this._soltarTemporal(examenId);
+        this._reconciliarVecinas();
     }
 
     estaAbierta(examenId) {
@@ -222,7 +239,12 @@ export class TableroCalificacion extends Component {
             this.state.tarjetasAbiertas = this.state.tarjetasAbiertas.filter((id) => id !== examenId);
         } else {
             this.state.tarjetasAbiertas.push(examenId);
+            // La tarjeta que se abre es con la que el sinodal va a trabajar:
+            // se queda en SU posición guardada (deja de estar desplazada por
+            // otra) y son las vecinas las que se reacomodan alrededor.
+            this._soltarTemporal(examenId);
         }
+        this._reconciliarVecinas();
     }
 
     expandir(examenId) {
@@ -240,35 +262,89 @@ export class TableroCalificacion extends Component {
     // ---- geometría del lienzo -----------------------------------------
 
     get altoLienzo() {
+        // Considera el alto REAL de cada tarjeta (abierta o no) y su posición
+        // EFECTIVA (incluye el desplazamiento temporal de las vecinas
+        // empujadas), para que el lienzo nunca recorte contenido.
         let maxAbajo = 700;
         for (const id of this.state.mesa) {
-            const p = this.state.posiciones[id];
-            if (!p) {
-                continue;
-            }
-            const alto = this.estaAbierta(id) ? 720 : ALTO_TARJETA;
-            maxAbajo = Math.max(maxAbajo, p.y + alto);
+            const alto = this.estaAbierta(id) ? ALTO_TARJETA_ABIERTA : ALTO_TARJETA;
+            maxAbajo = Math.max(maxAbajo, this._posEfectiva(id).y + alto);
         }
         return Math.min(maxAbajo + 80, ALTO_LIENZO_MAX);
     }
 
+    get anchoLienzo() {
+        // El lienzo nunca se encoge de ANCHO_LIENZO. Pero SÍ crece si una
+        // tarjeta abierta (o una vecina empujada) sobresale por la derecha:
+        // así el overflow-x del contenedor la deja alcanzable con scroll, sin
+        // moverla ni limitarla (requisito de la tarjeta abierta).
+        let maxDerecha = ANCHO_LIENZO;
+        for (const id of this.state.mesa) {
+            const ancho = this.estaAbierta(id) ? ANCHO_TARJETA_ABIERTA : ANCHO_TARJETA;
+            maxDerecha = Math.max(maxDerecha, this._posEfectiva(id).x + ancho + 80);
+        }
+        return Math.min(maxDerecha, ANCHO_LIENZO_MAX);
+    }
+
     posicionTarjeta(examenId) {
-        const p = this.state.posiciones[examenId] || { x: 0, y: 0 };
+        const p = this._posEfectiva(examenId);
+        const ancho = this.estaAbierta(examenId) ? ANCHO_TARJETA_ABIERTA : ANCHO_TARJETA;
         let z = 10;
         if (this.state.arrastrando === examenId) {
             z = 30;
         } else if (this.estaAbierta(examenId)) {
             z = 20;
         }
-        return `left:${p.x}px; top:${p.y}px; width:${ANCHO_TARJETA}px; z-index:${z};`;
+        // La tarjeta que se arrastra sigue al puntero sin transición (si no,
+        // "flota" con retraso). Las demás animan left/top/width para que se
+        // vea el reacomodo automático de las vecinas.
+        const transicion = this.state.arrastrando === examenId
+            ? "none"
+            : "left .15s ease, top .15s ease, width .15s ease";
+        return `left:${p.x}px; top:${p.y}px; width:${ancho}px; z-index:${z}; transition:${transicion};`;
     }
 
-    _choca(x, y, colocadas) {
-        return colocadas.some(
-            (c) =>
-                Math.abs(c.x - x) < ANCHO_TARJETA - HOLGURA_ENCIMADO &&
-                Math.abs(c.y - y) < ALTO_TARJETA - HOLGURA_ENCIMADO
+    // -- helpers de geometría (rectángulos de ancho/alto variable) --------
+
+    _dimsDe(examenId) {
+        return this.estaAbierta(examenId)
+            ? { w: ANCHO_TARJETA_ABIERTA, h: ALTO_TARJETA_ABIERTA }
+            : { w: ANCHO_TARJETA, h: ALTO_TARJETA };
+    }
+
+    _posGuardada(examenId) {
+        return this.state.posiciones[examenId] || { x: 0, y: 0 };
+    }
+
+    // Dónde se DIBUJA la tarjeta: su desplazamiento temporal si una vecina
+    // abierta la está empujando, si no su posición guardada.
+    _posEfectiva(examenId) {
+        return this.state.posicionesTemporales[examenId] || this._posGuardada(examenId);
+    }
+
+    _rect(pos, dims) {
+        return { x: pos.x, y: pos.y, w: dims.w, h: dims.h };
+    }
+
+    _solapeEje(a0, a1, b0, b1) {
+        return Math.min(a1, b1) - Math.max(a0, b0);
+    }
+
+    // Dos rectángulos "chocan" si se traslapan en AMBOS ejes por más de
+    // HOLGURA_ENCIMADO px. Vale para tarjetas de cualquier tamaño (una
+    // abierta es más ancha y más alta que una colapsada).
+    _seSolapan(a, b) {
+        return (
+            this._solapeEje(a.x, a.x + a.w, b.x, b.x + b.w) > HOLGURA_ENCIMADO &&
+            this._solapeEje(a.y, a.y + a.h, b.y, b.y + b.h) > HOLGURA_ENCIMADO
         );
+    }
+
+    _soltarTemporal(examenId) {
+        if (this.state.posicionesTemporales[examenId]) {
+            const { [examenId]: _omit, ...resto } = this.state.posicionesTemporales;
+            this.state.posicionesTemporales = resto;
+        }
     }
 
     _limitar(x, y) {
@@ -279,14 +355,16 @@ export class TableroCalificacion extends Component {
 
     _siguienteSlot() {
         const colocadas = this.state.mesa
-            .map((id) => this.state.posiciones[id])
-            .filter(Boolean);
+            .filter((id) => this.state.posiciones[id])
+            .map((id) => this._rect(this._posEfectiva(id), this._dimsDe(id)));
+        const dims = { w: ANCHO_TARJETA, h: ALTO_TARJETA };
         const cols = Math.max(1, Math.floor(ANCHO_LIENZO / (ANCHO_TARJETA + SEPARACION)));
         for (let fila = 0; fila < 60; fila++) {
             for (let col = 0; col < cols; col++) {
                 const x = col * (ANCHO_TARJETA + SEPARACION);
                 const y = fila * (ALTO_TARJETA + SEPARACION);
-                if (!this._choca(x, y, colocadas)) {
+                const rect = this._rect({ x, y }, dims);
+                if (!colocadas.some((r) => this._seSolapan(rect, r))) {
                     return { x, y };
                 }
             }
@@ -294,9 +372,15 @@ export class TableroCalificacion extends Component {
         return { x: 0, y: 0 };
     }
 
-    _espacioLibreCercano(x, y, colocadas) {
-        if (!this._choca(x, y, colocadas)) {
-            return { x, y };
+    // Hueco libre más cercano a 'base' para una tarjeta de tamaño 'dims',
+    // evitando cualquier rectángulo de 'colocadas'. Si 'base' ya está libre
+    // se devuelve tal cual (así, al desaparecer el conflicto, la vecina
+    // regresa EXACTAMENTE a su sitio).
+    _espacioLibreCercano(base, dims, colocadas) {
+        const cabe = (pos) =>
+            !colocadas.some((r) => this._seSolapan(this._rect(pos, dims), r));
+        if (cabe(base)) {
+            return { x: base.x, y: base.y };
         }
         const paso = 30;
         for (let radio = 1; radio <= 60; radio++) {
@@ -306,30 +390,83 @@ export class TableroCalificacion extends Component {
                     if (Math.abs(dx) !== radio && Math.abs(dy) !== radio) {
                         continue;
                     }
-                    const [nx, ny] = this._limitar(x + dx * paso, y + dy * paso);
-                    if (!this._choca(nx, ny, colocadas)) {
-                        return { x: nx, y: ny };
+                    const pos = {
+                        x: Math.max(0, base.x + dx * paso),
+                        y: Math.max(0, base.y + dy * paso),
+                    };
+                    if (cabe(pos)) {
+                        return pos;
                     }
                 }
             }
         }
-        return { x, y };
+        return { x: base.x, y: base.y };
     }
 
     _corregirEncimados() {
         // Al cargar posiciones guardadas: si dos tarjetas caen encimadas,
-        // reubica la segunda al espacio libre más cercano.
+        // reubica la segunda al espacio libre más cercano. En la carga
+        // inicial ninguna tarjeta está abierta todavía (todas colapsadas).
         const colocadas = [];
         for (const id of this.state.mesa) {
             const p = this.state.posiciones[id];
             if (!p) {
                 continue;
             }
+            const dims = this._dimsDe(id);
             const [x0, y0] = this._limitar(p.x, p.y);
-            const libre = this._espacioLibreCercano(x0, y0, colocadas);
+            const libre = this._espacioLibreCercano({ x: x0, y: y0 }, dims, colocadas);
             this.state.posiciones[id] = libre;
-            colocadas.push(libre);
+            colocadas.push(this._rect(libre, dims));
         }
+    }
+
+    // Reacomoda SOLO visualmente a las vecinas que una tarjeta abierta
+    // solapa por su mayor tamaño, y las regresa a su posición guardada en
+    // cuanto NINGUNA tarjeta abierta las solapa. Nunca escribe en el
+    // servidor: posicion_x/posicion_y quedan intactas.
+    _reconciliarVecinas() {
+        const abiertas = this.state.mesa.filter((id) => this.estaAbierta(id));
+        if (!abiertas.length) {
+            // Sin tarjetas abiertas no hay nada que empujar: todo vuelve a su
+            // posición guardada.
+            if (Object.keys(this.state.posicionesTemporales).length) {
+                this.state.posicionesTemporales = {};
+            }
+            return;
+        }
+
+        // Anclas fijas: NUNCA se mueven.
+        //  - las tarjetas abiertas: son con las que trabaja el sinodal
+        //    (aunque sobresalgan del ancho del lienzo, requisito explícito).
+        //  - la tarjeta que se está arrastrando justo ahora.
+        const fijas = new Set(abiertas);
+        if (this.state.arrastrando) {
+            fijas.add(this.state.arrastrando);
+        }
+        const colocadas = [...fijas]
+            .filter((id) => this.state.mesa.includes(id))
+            .map((id) => this._rect(this._posEfectiva(id), this._dimsDe(id)));
+
+        // Mismo patrón greedy que _corregirEncimados: recorremos las vecinas
+        // en el orden estable de state.mesa; si una choca con algo ya
+        // colocado (una ancla, o una vecina ya reubicada => cascada C->D),
+        // la mandamos al hueco libre más cercano a SU posición guardada.
+        const temporales = {};
+        for (const id of this.state.mesa) {
+            if (fijas.has(id) || !this.state.posiciones[id]) {
+                continue;
+            }
+            const guardada = this._posGuardada(id);
+            const dims = this._dimsDe(id);
+            const destino = this._espacioLibreCercano(guardada, dims, colocadas);
+            colocadas.push(this._rect(destino, dims));
+            if (destino.x !== guardada.x || destino.y !== guardada.y) {
+                temporales[id] = destino;
+            }
+        }
+
+        this.state.posicionesTemporales = temporales;
     }
 
     // ---- arrastre con Pointer Events (mouse + táctil) ------------------
@@ -346,7 +483,10 @@ export class TableroCalificacion extends Component {
         ev.preventDefault();
         ev.stopPropagation();
         const rect = lienzo.getBoundingClientRect();
-        const p = this.state.posiciones[examenId] || { x: 0, y: 0 };
+        // Desde donde se VE (puede estar desplazada temporalmente por una
+        // vecina abierta), no desde su posición guardada: así no pega un
+        // brinco al empezar a arrastrar.
+        const p = this._posEfectiva(examenId);
         this._arrastre = {
             examenId,
             pointerId: ev.pointerId,
@@ -369,11 +509,45 @@ export class TableroCalificacion extends Component {
             return;
         }
         ev.preventDefault();
+
+        // Primer movimiento real de una tarjeta que estaba desplazada por una
+        // vecina abierta: soltamos su desplazamiento temporal (el desfase ya
+        // se calculó desde donde se veía, así que no brinca) y de aquí en
+        // adelante manda el puntero.
+        if (!a.movido) {
+            this._soltarTemporal(a.examenId);
+        }
+
         const rect = this.lienzoRef.el.getBoundingClientRect();
-        const [x, y] = this._limitar(
+        let [x, y] = this._limitar(
             ev.clientX - rect.left - a.desfaseX,
             ev.clientY - rect.top - a.desfaseY
         );
+
+        // No permitir soltar la tarjeta encima de otra: si el destino choca,
+        // se intenta deslizar solo en X, luego solo en Y, y si nada libra se
+        // mantiene la última posición válida de este arrastre.
+        const dims = this._dimsDe(a.examenId);
+        const obstaculos = this.state.mesa
+            .filter((id) => id !== a.examenId && this.state.posiciones[id])
+            .map((id) => this._rect(this._posEfectiva(id), this._dimsDe(id)));
+        const libre = (px, py) =>
+            !obstaculos.some((r) => this._seSolapan(this._rect({ x: px, y: py }, dims), r));
+
+        if (obstaculos.length && !libre(x, y)) {
+            const prev = this.state.posiciones[a.examenId] || { x, y };
+            if (libre(x, prev.y)) {
+                y = prev.y;
+            } else if (libre(prev.x, y)) {
+                x = prev.x;
+            } else if (libre(prev.x, prev.y)) {
+                x = prev.x;
+                y = prev.y;
+            }
+            // Si ni la posición previa libra (arranque ya encimado), se deja
+            // pasar el movimiento crudo: mejor arrastrable que congelada.
+        }
+
         a.movido = true;
         this.state.posiciones[a.examenId] = { x, y };
     }
@@ -393,6 +567,9 @@ export class TableroCalificacion extends Component {
         // (0,0) es el centinela de "sin posición": si la tarjeta acabó justo
         // ahí, la empujamos 1px para que sí se persista.
         const x = p.x === 0 && p.y === 0 ? 1 : p.x;
+        // La tarjeta cambió de posición guardada: recalcular si alguna vecina
+        // abierta ahora la solapa (o la dejó de solapar).
+        this._reconciliarVecinas();
         await this.orm.write("taekwondo.examen", [a.examenId], {
             posicion_x: x,
             posicion_y: p.y,

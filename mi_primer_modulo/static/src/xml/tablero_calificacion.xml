@@ -79,7 +79,7 @@
                         style="overflow-x: auto;">
                         <div class="position-relative"
                             t-ref="lienzo"
-                            t-att-style="'width: ' + ANCHO_LIENZO + 'px; height: ' + altoLienzo + 'px;'">
+                            t-att-style="'width: ' + anchoLienzo + 'px; height: ' + altoLienzo + 'px;'">
 
                             <div t-foreach="state.mesa" t-as="examenId" t-key="examenId"
                                 t-att-class="'rounded bg-white shadow-sm position-absolute border border-2 ' +
