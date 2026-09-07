@@ -53,6 +53,14 @@ class TaekwondoExamen(models.Model):
     )
     notas_sinodal = fields.Text(string='Notas del sinodal')
     mejor_examen = fields.Boolean(string='Mejor Examen', default=False)
+    posicion_x = fields.Float(
+        string='Posición X en la mesa', default=0.0, copy=False,
+        help='Vista personal de la Mesa de Calificación. 0 = sin posición asignada.',
+    )
+    posicion_y = fields.Float(
+        string='Posición Y en la mesa', default=0.0, copy=False,
+        help='Vista personal de la Mesa de Calificación. 0 = sin posición asignada.',
+    )
     costo_examen = fields.Float(string='Costo del examen')
     costo_sinodal = fields.Float(string='Pago a sinodal', default=0.0)
     costo_institucion = fields.Float(string='Pago a institución', default=0.0)
