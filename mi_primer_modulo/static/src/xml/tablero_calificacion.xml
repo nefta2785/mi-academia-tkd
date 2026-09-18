@@ -75,7 +75,8 @@
                     </div>
 
                     <div t-elif="state.expandido === null"
-                        class="border rounded position-relative">
+                        class="border rounded position-relative"
+                        style="overflow: auto; max-height: calc(100vh - 220px);">
 
                         <div class="d-flex justify-content-end align-items-center border-bottom bg-light"
                             style="position: sticky; top: 0; z-index: 40; gap: 6px; padding: 4px 8px;">
