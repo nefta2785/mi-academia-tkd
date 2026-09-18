@@ -62,6 +62,7 @@ export class TableroCalificacion extends Component {
 
     setup() {
         this.orm = useService("orm");
+        this.notification = useService("notification");
         this.lienzoRef = useRef("lienzo");
 
         this.state = useState({
@@ -116,7 +117,7 @@ export class TableroCalificacion extends Component {
                 [["evento_id", "=", eventoId]],
                 [
                     "alumno_id", "cinta_evaluada", "resultado", "mejor_examen",
-                    "posicion_x", "posicion_y",
+                    "posicion_x", "posicion_y", "en_mesa",
                 ]
             );
 
@@ -178,13 +179,17 @@ export class TableroCalificacion extends Component {
             }
             this.state.progreso = progreso;
 
-            // Restaurar la mesa personal: todo examen con posición guardada
-            // (x o y != 0) vuelve a la mesa, colapsado, donde se dejó.
+            // Restaurar la mesa personal: el criterio de pertenencia es
+            // en_mesa (persistido), NO la posición. posicion_x/y solo dicen
+            // DÓNDE va si está en la mesa, ya no SI está en la mesa - ver
+            // quitarDeMesa/agregarAMesa.
             const mesa = [];
             const posiciones = {};
             for (const examen of examenes) {
-                if (examen.posicion_x || examen.posicion_y) {
+                if (examen.en_mesa) {
                     mesa.push(examen.id);
+                }
+                if (examen.posicion_x || examen.posicion_y) {
                     posiciones[examen.id] = { x: examen.posicion_x, y: examen.posicion_y };
                 }
             }
@@ -267,7 +272,7 @@ export class TableroCalificacion extends Component {
 
     // ---- mesa: agregar / quitar / abrir / expandir ---------------------
 
-    agregarAMesa(examenId) {
+    async agregarAMesa(examenId) {
         if (this.state.mesa.includes(examenId)) {
             return;
         }
@@ -279,17 +284,44 @@ export class TableroCalificacion extends Component {
             this.state.posiciones[examenId] = this._siguienteSlot();
         }
         this.state.mesa.push(examenId);
+        try {
+            await this.orm.write("taekwondo.examen", [examenId], { en_mesa: true });
+        } catch (error) {
+            // Reversión optimista: si no se pudo persistir, el alumno no
+            // se queda "en la mesa" solo en el navegador de este sinodal -
+            // eso volvería a divergir del servidor, el mismo tipo de bug
+            // que estamos arreglando.
+            this.state.mesa = this.state.mesa.filter((id) => id !== examenId);
+            this.notification.add(
+                "No se pudo agregar el alumno a la mesa. Intenta de nuevo.",
+                { type: "danger" }
+            );
+        }
     }
 
-    quitarDeMesa(examenId) {
+    async quitarDeMesa(examenId) {
         // "Quitar" es PURAMENTE VISUAL: solo saca el examenId del arreglo
-        // 'mesa'. NO se borra 'state.posiciones[examenId]' ni se toca
-        // posicion_x/posicion_y en el servidor, para que al volver a agregar
-        // al alumno con "+" reaparezca exactamente donde el sinodal lo dejó.
+        // 'mesa' y persiste en_mesa=False. NO se borra 'state.posiciones'
+        // ni se toca posicion_x/posicion_y en el servidor, para que al
+        // volver a agregar al alumno con "+" reaparezca exactamente donde
+        // el sinodal lo dejó.
         this.state.mesa = this.state.mesa.filter((id) => id !== examenId);
         this.state.tarjetasAbiertas = this.state.tarjetasAbiertas.filter((id) => id !== examenId);
         if (this.state.expandido === examenId) {
             this.state.expandido = null;
+        }
+        try {
+            await this.orm.write("taekwondo.examen", [examenId], { en_mesa: false });
+        } catch (error) {
+            // Revertimos SOLO la pertenencia a la mesa: tarjetasAbiertas y
+            // expandido no se restauran porque su estado no es lo que
+            // falló en persistir y reabrir/expandir de vuelta sin que el
+            // usuario lo pidiera sería más confuso que útil.
+            this.state.mesa.push(examenId);
+            this.notification.add(
+                "No se pudo quitar el alumno de la mesa. Intenta de nuevo.",
+                { type: "danger" }
+            );
         }
     }
 
