@@ -4,40 +4,53 @@
         <div class="p-4">
             <div t-if="state.cargando">Cargando examen...</div>
             <div t-else="">
-                <div class="d-flex align-items-center mb-4">
-                    <img t-if="state.alumno.foto"
-                        t-att-src="'data:image/png;base64,' + state.alumno.foto"
-                        class="rounded-circle me-3"
-                        style="width: 90px; height: 90px; object-fit: cover;"/>
-                    <div t-else=""
-                        class="rounded-circle bg-light d-flex align-items-center justify-content-center me-3"
-                        style="width: 90px; height: 90px;">
-                        <i class="fa fa-user fa-2x text-muted"/>
+                <div class="mb-4">
+                    <!-- Paso 1: avatar alineado SOLO con nombre+meta (no se
+                         extiende hacia los botones, que van en su propio
+                         bloque debajo). -->
+                    <div class="d-flex align-items-center mb-3">
+                        <img t-if="state.alumno.foto"
+                            t-att-src="'data:image/png;base64,' + state.alumno.foto"
+                            class="rounded-circle me-3"
+                            style="width: 56px; height: 56px; object-fit: cover;"/>
+                        <div t-else=""
+                            class="rounded-circle bg-light d-flex align-items-center justify-content-center me-3"
+                            style="width: 56px; height: 56px;">
+                            <i class="fa fa-user fa-lg text-muted"/>
+                        </div>
+                        <div>
+                            <div class="d-flex align-items-center">
+                                <strong style="font-size: 1.15rem;" t-esc="state.alumno.name"/>
+                                <span t-if="state.mensajeGuardado"
+                                    class="ms-3"
+                                    style="color: #28a745; font-size: 0.9rem; font-weight: 600;">✓ Guardado</span>
+                            </div>
+                            <div class="text-muted">
+                                <span>Edad: <t t-esc="state.alumno.edad"/> años</span>
+                                <span class="mx-2">|</span>
+                                <span>Cinta evaluada: <t t-esc="state.cintaEvaluada"/></span>
+                            </div>
+                        </div>
                     </div>
-                    <div>
-                        <div class="d-flex align-items-center">
-                            <h2 class="mb-0" t-esc="state.alumno.name"/>
-                            <span t-if="state.mensajeGuardado"
-                                class="ms-3"
-                                style="color: #28a745; font-size: 0.9rem; font-weight: 600;">✓ Guardado</span>
-                        </div>
-                        <div class="text-muted mb-2">
-                            <span>Edad: <t t-esc="state.alumno.edad"/> años</span>
-                            <span class="mx-2">|</span>
-                            <span>Cinta evaluada: <t t-esc="state.cintaEvaluada"/></span>
-                        </div>
-                        <div class="d-flex flex-wrap" style="gap: 12px;" role="group">
-                            <button t-foreach="opcionesResultado" t-as="opcion" t-key="opcion.valor"
-                                type="button"
-                                t-att-class="'btn btn-lg ' + (state.resultado === opcion.valor ? 'btn-primary' : 'btn-outline-secondary')"
-                                style="min-height: 44px; padding: 0.6rem 1.5rem; font-size: 1.1rem;"
-                                t-on-click="() => this.marcarResultado(opcion.valor)"
-                                t-esc="opcion.etiqueta"/>
-                            <button type="button"
-                                t-att-class="'btn btn-lg ' + (state.mejorExamen ? 'btn-warning' : 'btn-outline-secondary')"
-                                style="min-height: 44px; padding: 0.6rem 1.5rem; font-size: 1.1rem;"
-                                t-on-click="() => this.alternarMejorExamen()">★ Mejor Examen</button>
-                        </div>
+
+                    <!-- Paso 2: 3 columnas iguales, orden fijo Aprobado/
+                         Pendiente/Reprobado (ver OPCIONES_RESULTADO en el
+                         JS). Paso 3: Mejor Examen en una segunda fila,
+                         anclado a la columna central (grid-column: 2) -
+                         mismo ancho que Pendiente, no el de toda la fila;
+                         el auto-flow de grid la manda sola a esa fila
+                         nueva porque la primera ya está completa. -->
+                    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px;" role="group">
+                        <button t-foreach="opcionesResultado" t-as="opcion" t-key="opcion.valor"
+                            type="button"
+                            t-att-class="'btn ' + (state.resultado === opcion.valor ? 'btn-primary' : 'btn-outline-secondary')"
+                            style="min-height: 34px; padding: 0.35rem 0.75rem; font-size: 0.85rem;"
+                            t-on-click="() => this.marcarResultado(opcion.valor)"
+                            t-esc="opcion.etiqueta"/>
+                        <button type="button"
+                            t-att-class="'btn ' + (state.mejorExamen ? 'btn-warning' : 'btn-outline-secondary')"
+                            style="grid-column: 2; min-height: 34px; padding: 0.35rem 0.75rem; font-size: 0.85rem;"
+                            t-on-click="() => this.alternarMejorExamen()">★ Mejor Examen</button>
                     </div>
                 </div>
 
