@@ -17,8 +17,8 @@ const OPCIONES_CALIFICACION = [
 
 const OPCIONES_RESULTADO = [
     { valor: "aprobado", etiqueta: "Aprobado" },
-    { valor: "reprobado", etiqueta: "Reprobado" },
     { valor: "pendiente", etiqueta: "Pendiente" },
+    { valor: "reprobado", etiqueta: "Reprobado" },
 ];
 
 export class PanelCalificacion extends Component {
