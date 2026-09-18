@@ -3,78 +3,193 @@
     <t t-name="mi_primer_modulo.TableroCalificacion">
         <div class="p-3" style="height: 100%; overflow-y: auto;">
             <div t-if="state.cargando">Cargando información del evento...</div>
-            <div t-else="" class="d-flex" style="align-items: flex-start;">
+            <div t-else="" class="d-flex" style="align-items: flex-start; gap: 1rem;">
 
-                <div style="width: 300px; flex-shrink: 0;" class="border-end pe-3 me-3">
-                    <h4>Roster</h4>
-                    <div class="btn-group mb-3" role="group">
-                        <button type="button"
-                            t-att-class="'btn btn-sm ' + (state.ordenPor === 'edad' ? 'btn-primary' : 'btn-outline-secondary')"
-                            t-on-click="() => this.ordenarPor('edad')">Edad</button>
-                        <button type="button"
-                            t-att-class="'btn btn-sm ' + (state.ordenPor === 'cinta' ? 'btn-primary' : 'btn-outline-secondary')"
-                            t-on-click="() => this.ordenarPor('cinta')">Cinta</button>
+                <div t-if="state.rosterColapsado" class="flex-shrink-0">
+                    <button type="button" class="btn btn-sm btn-light border"
+                        t-on-click="() => this.alternarRoster()" title="Mostrar roster">
+                        <i class="fa fa-angle-double-right"/>
+                    </button>
+                </div>
+
+                <div t-else="" style="width: 320px; flex-shrink: 0;" class="border-end pe-3">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <h4 class="mb-0">Roster</h4>
+                        <button type="button" class="btn btn-sm btn-light border"
+                            t-on-click="() => this.alternarRoster()" title="Ocultar roster">
+                            <i class="fa fa-angle-double-left"/>
+                        </button>
                     </div>
+                    <div t-if="!state.roster.length" class="text-muted">
+                        Este evento todavía no tiene exámenes. Agrégalos desde el
+                        formulario del evento.
+                    </div>
+                    <div t-else="">
+                        <div class="btn-group btn-group-sm mb-3" role="group">
+                            <button type="button"
+                                t-att-class="'btn ' + (state.ordenPor === 'edad' ? 'btn-primary' : 'btn-outline-secondary')"
+                                t-on-click="() => this.ordenarPor('edad')">Edad</button>
+                            <button type="button"
+                                t-att-class="'btn ' + (state.ordenPor === 'cinta' ? 'btn-primary' : 'btn-outline-secondary')"
+                                t-on-click="() => this.ordenarPor('cinta')">Cinta</button>
+                        </div>
 
-                    <div t-foreach="rosterOrdenado" t-as="item" t-key="item.examenId"
-                        class="d-flex align-items-center mb-2">
-                        <img t-if="item.foto"
-                            t-att-src="'data:image/png;base64,' + item.foto"
-                            class="rounded-circle me-2"
-                            style="width: 36px; height: 36px; object-fit: cover;"/>
-                        <div t-else=""
-                            class="rounded-circle bg-light d-flex align-items-center justify-content-center me-2"
-                            style="width: 36px; height: 36px; flex-shrink: 0;">
-                            <i class="fa fa-user text-muted"/>
+                        <div t-foreach="rosterOrdenado" t-as="item" t-key="item.examenId"
+                            class="d-flex align-items-center mb-2 p-2 rounded border border-transparent">
+                            <img t-if="item.foto"
+                                t-att-src="'data:image/png;base64,' + item.foto"
+                                class="rounded-circle me-2"
+                                style="width: 40px; height: 40px; object-fit: cover;"/>
+                            <div t-else=""
+                                class="rounded-circle bg-light d-flex align-items-center justify-content-center me-2 border"
+                                style="width: 40px; height: 40px; flex-shrink: 0;">
+                                <i class="fa fa-user text-muted"/>
+                            </div>
+                            <div class="flex-grow-1">
+                                <div>
+                                    <t t-esc="item.name"/>
+                                    <span t-if="item.mejorExamen" style="color:#ffc107;">★</span>
+                                </div>
+                                <small class="text-muted">
+                                    <t t-esc="item.edad"/> años · <t t-esc="item.cintaEvaluadaLabel"/>
+                                </small>
+                            </div>
+                            <div class="text-end ms-2 d-flex flex-column align-items-end">
+                                <span t-att-class="'badge ' + (item.resultado === 'aprobado' ? 'text-bg-success' : item.resultado === 'reprobado' ? 'text-bg-danger' : 'text-bg-secondary')"
+                                    t-esc="etiquetaResultado(item.resultado)"/>
+                                <small class="text-muted"
+                                    t-esc="(state.progreso[item.examenId] || 0) + '/4'"/>
+                            </div>
+                            <button type="button" class="btn btn-sm btn-primary ms-2"
+                                t-att-disabled="state.mesa.includes(item.examenId)"
+                                t-on-click="() => this.agregarAMesa(item.examenId)">+</button>
                         </div>
-                        <div class="flex-grow-1">
-                            <div t-esc="item.name"/>
-                            <small class="text-muted">
-                                <t t-esc="item.edad"/> años · <t t-esc="item.cintaEvaluadaLabel"/>
-                            </small>
-                        </div>
-                        <button type="button" class="btn btn-sm btn-primary"
-                            t-att-disabled="state.mesa.includes(item.examenId)"
-                            t-on-click="() => this.agregarAMesa(item.examenId)">+</button>
                     </div>
                 </div>
 
-                <div class="flex-grow-1">
+                <div class="flex-grow-1" style="min-width: 0;">
                     <h4>Mesa de calificación</h4>
+
                     <div t-if="!state.mesa.length" class="text-muted">
-                        Agrega alumnos del roster con el botón "+" para empezar a calificar.
+                        Agrega alumnos del roster con el botón + para empezar a calificar.
                     </div>
 
-                    <div t-elif="state.expandido === null" class="d-flex flex-wrap" style="gap: 12px;">
-                        <div t-foreach="state.mesa" t-as="examenId" t-key="examenId"
-                            t-att-class="'border border-2 rounded position-relative p-2 ' +
-                                (rosterPorExamenId[examenId].resultado === 'aprobado' ? 'border-success' :
-                                 rosterPorExamenId[examenId].resultado === 'reprobado' ? 'border-danger' :
-                                 'border-secondary')"
-                            style="width: 220px; cursor: pointer;"
-                            t-on-click="() => this.expandir(examenId)">
-                            <t t-set="item" t-value="rosterPorExamenId[examenId]"/>
-                            <span t-if="item.mejorExamen"
-                                class="position-absolute top-0 start-0 m-1"
-                                style="color: #ffc107; font-size: 1.1rem;">★</span>
-                            <button type="button"
-                                class="btn btn-sm btn-outline-danger position-absolute top-0 end-0 m-1"
-                                t-on-click.stop="() => this.quitarDeMesa(examenId)">x</button>
-                            <small class="position-absolute bottom-0 end-0 m-1 text-muted"
-                                t-esc="(state.progreso[examenId] || 0) + '/4'"/>
-                            <div class="d-flex align-items-center">
-                                <img t-if="item.foto"
-                                    t-att-src="'data:image/png;base64,' + item.foto"
-                                    class="rounded-circle me-2"
-                                    style="width: 40px; height: 40px; object-fit: cover;"/>
-                                <div t-else=""
-                                    class="rounded-circle bg-light d-flex align-items-center justify-content-center me-2"
-                                    style="width: 40px; height: 40px; flex-shrink: 0;">
-                                    <i class="fa fa-user text-muted"/>
+                    <div t-elif="state.expandido === null"
+                        class="border rounded position-relative">
+
+                        <div class="d-flex justify-content-end align-items-center border-bottom bg-light"
+                            style="position: sticky; top: 0; z-index: 40; gap: 6px; padding: 4px 8px;">
+                            <button type="button" class="btn btn-sm btn-light border"
+                                t-on-click="() => this.zoomOut()" title="Alejar">−</button>
+                            <small class="text-muted" style="min-width: 3.5em; text-align: center;"
+                                t-esc="Math.round(state.zoom * 100) + '%'"/>
+                            <button type="button" class="btn btn-sm btn-light border"
+                                t-on-click="() => this.zoomIn()" title="Acercar">+</button>
+                        </div>
+
+                        <div t-att-style="estiloLienzo" t-ref="lienzo">
+
+                            <div t-foreach="state.mesa" t-as="examenId" t-key="examenId"
+                                t-att-data-examen-id="examenId"
+                                t-att-style="estiloTarjeta(examenId)">
+
+                                <t t-set="item" t-value="rosterPorExamenId[examenId] || {}"/>
+
+                                <!-- Exclusividad total (Paso 1): si esta card está cubierta
+                                     (esCubierta, por solape real de footprint completo contra
+                                     CUALQUIER otra con mayor prioridad, abierta o cerrada), el
+                                     CONTENEDOR EXTERNO COMPLETO (cardBox, el que lleva el
+                                     borde de color) queda display:none - borde incluido, nunca
+                                     un layering parcial. El tag es HERMANO de cardBox, no su
+                                     hijo, así se sigue viendo aunque el resto esté 100% oculto;
+                                     está anclado a SUS propias coordenadas (no a las de quien
+                                     la cubre), para poder traerla al frente o reposicionarla
+                                     sin revelarla. -->
+                                <div t-att-class="'rounded bg-white shadow-sm border border-2 ' +
+                                        (item.resultado === 'aprobado' ? 'border-success' :
+                                         item.resultado === 'reprobado' ? 'border-danger' :
+                                         'border-secondary')"
+                                    t-att-style="estiloCardBox(examenId)">
+
+                                    <div t-att-style="estiloCabecera(examenId)">
+                                        <div class="d-flex bg-light border-bottom" style="user-select: none;">
+                                            <div class="d-flex align-items-center justify-content-center px-2 text-muted border-end"
+                                                style="cursor: grab; touch-action: none;"
+                                                t-on-pointerdown="(ev) => this.alPresionarManija(ev, examenId)"
+                                                t-on-pointermove="(ev) => this.alMoverManija(ev)"
+                                                t-on-pointerup="(ev) => this.alSoltarManija(ev)"
+                                                t-on-pointercancel="(ev) => this.alSoltarManija(ev)"
+                                                title="Arrastrar para reposicionar">
+                                                <i class="fa fa-arrows"/>
+                                            </div>
+
+                                            <div class="flex-grow-1 px-2 py-2"
+                                                style="cursor: pointer; min-width: 0;"
+                                                t-on-click="() => this.alternarTarjeta(examenId)">
+                                                <div class="d-flex align-items-center flex-wrap" style="gap: 0.5rem;">
+                                                    <i t-att-class="'fa text-muted ' + (estaAbierta(examenId) ? 'fa-chevron-down' : 'fa-chevron-right')"/>
+                                                    <img t-if="item.foto"
+                                                        t-att-src="'data:image/png;base64,' + item.foto"
+                                                        class="rounded-circle"
+                                                        style="width: 36px; height: 36px; object-fit: cover; flex-shrink: 0;"/>
+                                                    <div t-else=""
+                                                        class="rounded-circle bg-white d-flex align-items-center justify-content-center border"
+                                                        style="width: 36px; height: 36px; flex-shrink: 0;">
+                                                        <i class="fa fa-user text-muted"/>
+                                                    </div>
+                                                    <div class="flex-grow-1" style="min-width: 0;">
+                                                        <div>
+                                                            <strong t-esc="item.name || ('Examen ' + examenId)"/>
+                                                            <span t-if="item.mejorExamen" style="color:#ffc107;">★</span>
+                                                        </div>
+                                                        <small class="text-muted">
+                                                            <t t-esc="item.edad"/> años · <t t-esc="item.cintaEvaluadaLabel"/>
+                                                        </small>
+                                                    </div>
+                                                    <span t-att-class="'badge ' + (item.resultado === 'aprobado' ? 'text-bg-success' : item.resultado === 'reprobado' ? 'text-bg-danger' : 'text-bg-secondary')"
+                                                        t-esc="etiquetaResultado(item.resultado)"/>
+                                                    <small class="text-muted"
+                                                        t-esc="(state.progreso[examenId] || 0) + '/4'"/>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div class="d-flex flex-wrap p-2 bg-light border-bottom" style="gap: 0.5rem;">
+                                            <button type="button" class="btn btn-sm btn-outline-secondary"
+                                                t-on-click.stop="() => this.expandir(examenId)">Expandir</button>
+                                            <button type="button" class="btn btn-sm btn-outline-danger"
+                                                t-on-click.stop="() => this.quitarDeMesa(examenId)">Quitar</button>
+                                        </div>
+                                    </div>
+
+                                    <div t-if="estaAbierta(examenId)" t-att-data-cuerpo-id="examenId"
+                                        t-att-style="estiloCuerpoAbierto(examenId)">
+                                        <PanelCalificacion t-key="examenId"
+                                            examenId="examenId"
+                                            onGuardado="(id) => this.onCriterioGuardado(id)"
+                                            onResultadoCambiado="(id, valor) => this.onResultadoCambiado(id, valor)"
+                                            onMejorExamenCambiado="(id, valor) => this.onMejorExamenCambiado(id, valor)"/>
+                                    </div>
                                 </div>
-                                <div style="padding-right: 40px;">
-                                    <div t-esc="item.name"/>
-                                    <small class="text-muted" t-esc="item.cintaEvaluadaLabel"/>
+
+                                <!-- Tag de traer al frente (Paso 2): tamaño fijo, sin texto -
+                                     el nombre completo va en el title (tooltip nativo). HERMANO
+                                     del cardBox de arriba (nunca su hijo, ver comentario
+                                     anterior). Posición elegida por estiloTag/_posicionTag,
+                                     evitando colisionar con CUALQUIER card visible o tag ya
+                                     colocado. Drag propio con Pointer Events: un click simple
+                                     (sin mover) trae la card al frente y la abre; arrastrarlo
+                                     reposiciona la card SIN revelarla (ver
+                                     alPresionarTag/alSoltarTag). -->
+                                <div t-if="esCubierta(examenId)"
+                                    class="d-flex align-items-center justify-content-center rounded bg-white border shadow-sm text-muted"
+                                    t-att-style="estiloTag(examenId)"
+                                    t-on-pointerdown="(ev) => this.alPresionarTag(ev, examenId)"
+                                    t-on-pointermove="(ev) => this.alMoverTag(ev)"
+                                    t-on-pointerup="(ev) => this.alSoltarTag(ev)"
+                                    t-on-pointercancel="(ev) => this.alSoltarTag(ev)"
+                                    t-att-title="item.name || ('Examen ' + examenId)">
+                                    <i class="fa fa-user"/>
                                 </div>
                             </div>
                         </div>
@@ -82,12 +197,18 @@
 
                     <div t-else="">
                         <button type="button" class="btn btn-secondary mb-3"
-                            t-on-click="() => this.regresar()">← Regresar</button>
+                            t-on-click="() => this.regresar()">← Regresar a la mesa</button>
                         <div class="border rounded">
-                            <PanelCalificacion examenId="state.expandido"
-                                onGuardado="(examenId) => this.onCriterioGuardado(examenId)"
-                                onResultadoCambiado="(examenId, valor) => this.onResultadoCambiado(examenId, valor)"
-                                onMejorExamenCambiado="(examenId, valor) => this.onMejorExamenCambiado(examenId, valor)"/>
+                            <div class="d-flex justify-content-between align-items-center px-3 py-2 bg-light border-bottom">
+                                <strong t-esc="(rosterPorExamenId[state.expandido] || {}).name || ('Examen ' + state.expandido)"/>
+                                <button type="button" class="btn btn-sm btn-outline-danger"
+                                    t-on-click="() => this.quitarDeMesa(state.expandido)">Quitar de la mesa</button>
+                            </div>
+                            <PanelCalificacion t-key="state.expandido"
+                                examenId="state.expandido"
+                                onGuardado="(id) => this.onCriterioGuardado(id)"
+                                onResultadoCambiado="(id, valor) => this.onResultadoCambiado(id, valor)"
+                                onMejorExamenCambiado="(id, valor) => this.onMejorExamenCambiado(id, valor)"/>
                         </div>
                     </div>
                 </div>
