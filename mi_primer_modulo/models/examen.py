@@ -1,5 +1,6 @@
 from odoo import api, fields, models
 from odoo.exceptions import UserError
+from odoo.tools import sql
 
 
 class TaekwondoExamen(models.Model):
@@ -53,6 +54,13 @@ class TaekwondoExamen(models.Model):
     )
     notas_sinodal = fields.Text(string='Notas del sinodal')
     mejor_examen = fields.Boolean(string='Mejor Examen', default=False)
+    en_mesa = fields.Boolean(
+        string='En la mesa de calificación', default=False, copy=False,
+        help='Si el examen está actualmente colocado en la Mesa de Calificación. '
+             'Independiente de posicion_x/posicion_y: esos se conservan al quitar '
+             'un alumno de la mesa para que "+" lo reponga donde se dejó, pero '
+             'en_mesa sí debe reflejar la mesa vacía/llena real.',
+    )
     posicion_x = fields.Float(
         string='Posición X en la mesa', default=0.0, copy=False,
         help='Vista personal de la Mesa de Calificación. 0 = sin posición asignada.',
@@ -90,6 +98,24 @@ class TaekwondoExamen(models.Model):
     )
 
     _CATEGORIAS_CRITERIO = ['basicos', 'poomse', 'kiorugui', 'kiopka']
+
+    def _auto_init(self):
+        # Backfill de una sola vez al introducir en_mesa: si la columna aún
+        # no existe en la tabla, este es el upgrade que la está creando, así
+        # que aprovechamos para inicializarla a partir del estado actual de
+        # posicion_x/posicion_y (el proxy que se usaba antes). En upgrades
+        # posteriores la columna ya existe y este bloque nunca se repite -
+        # crítico, porque repetirlo resucitaría alumnos ya quitados de la
+        # mesa (que conservan su posicion_x/y a propósito, ver en_mesa).
+        columna_nueva = not sql.column_exists(self.env.cr, self._table, 'en_mesa')
+        resultado = super()._auto_init()
+        if columna_nueva:
+            self.env.cr.execute("""
+                UPDATE taekwondo_examen
+                SET en_mesa = TRUE
+                WHERE posicion_x != 0 OR posicion_y != 0
+            """)
+        return resultado
 
     @api.depends(
         'costo_examen', 'costo_sinodal', 'costo_institucion', 'costo_tabla', 'costo_cinta',
