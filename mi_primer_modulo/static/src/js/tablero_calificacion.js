@@ -358,15 +358,25 @@ export class TableroCalificacion extends Component {
     }
 
     // Contenedor externo completo (el que lleva el borde de color
-    // aprobado/reprobado/pendiente): display:none TOTAL (Paso 1) cuando
-    // esta card está cubierta - a diferencia de antes, esto es lo único
-    // que decide la visibilidad; cabecera y body NO repiten la condición
-    // (ver estiloCabecera/estiloCuerpoAbierto) porque ocultar este
-    // contenedor ya oculta TODO lo que hay dentro, borde incluido - así
-    // no puede quedar un borde/franja huérfano visible cuando el
-    // contenido interno colapsa a cero alto.
+    // aprobado/reprobado/pendiente): oculto TOTAL (Paso 1) cuando esta card
+    // está cubierta - a diferencia de antes, esto es lo único que decide la
+    // visibilidad; cabecera y body NO repiten la condición (ver
+    // estiloCabecera/estiloCuerpoAbierto) porque ocultar este contenedor ya
+    // oculta TODO lo que hay dentro, borde incluido.
+    //
+    // visibility:hidden y NO display:none a propósito: el cuerpo abierto
+    // (con data-cuerpo-id, medido por el ResizeObserver de setup()) vive
+    // DENTRO de este contenedor. display:none lo habría colapsado a
+    // clientHeight 0 en cuanto la card se cubre, y _cuerpoRect habría
+    // tratado ese 0 como "altura sin medir" (ver su chequeo) - encogiendo el
+    // footprint de vuelta a solo el header, lo que le hacía dejar de
+    // solaparse con la cubridora, revelándose de nuevo, remidiendo su alto
+    // real, volviendo a solaparse... parpadeo infinito por retroalimentación
+    // entre cobertura y medición. visibility:hidden esconde exactamente
+    // igual (nada del contenido ni el borde queda visible) pero conserva el
+    // tamaño en el layout, así el observer siempre mide la altura real.
     estiloCardBox(examenId) {
-        return this.esCubierta(examenId) ? "position: relative; display: none;" : "position: relative;";
+        return this.esCubierta(examenId) ? "position: relative; visibility: hidden;" : "position: relative;";
     }
 
     // Cabecera (header + fila de botones Expandir/Quitar): tier de z-index
@@ -483,7 +493,12 @@ export class TableroCalificacion extends Component {
     // abierta). Empieza justo debajo de su propia card (y + ALTO_TARJETA).
     _cuerpoRect(examenId) {
         const alto = this.state.alturasCuerpo[examenId];
-        if (!alto) {
+        // === undefined (nunca medido), no !alto: un alto de 0 medido de
+        // verdad debe contar como "sin cuerpo", no confundirse con "no
+        // medido todavía" - ver el comentario de estiloCardBox sobre por
+        // qué ya no debería poder llegar un 0 espurio aquí, pero más vale
+        // no depender de que 0 sea falsy para la corrección de este cálculo.
+        if (alto === undefined) {
             return null;
         }
         const p = this._pos(examenId);

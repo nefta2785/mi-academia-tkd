@@ -99,8 +99,14 @@
                                      (esCubierta, por solape real de footprint completo contra
                                      CUALQUIER otra con mayor prioridad, abierta o cerrada), el
                                      CONTENEDOR EXTERNO COMPLETO (cardBox, el que lleva el
-                                     borde de color) queda display:none - borde incluido, nunca
-                                     un layering parcial. El tag es HERMANO de cardBox, no su
+                                     borde de color) queda oculto con visibility:hidden - borde
+                                     incluido, nunca un layering parcial. NO es display:none: el
+                                     cuerpo abierto vive dentro de cardBox y su altura la mide un
+                                     ResizeObserver (ver setup()/_cuerpoRect); display:none lo
+                                     habría colapsado a 0 en cuanto se cubre, lo que le hacía
+                                     "dejar de solaparse", revelarse, remedirse y volver a
+                                     solaparse - parpadeo infinito (ver el comentario de
+                                     estiloCardBox en el JS). El tag es HERMANO de cardBox, no su
                                      hijo, así se sigue viendo aunque el resto esté 100% oculto;
                                      está anclado a SUS propias coordenadas (no a las de quien
                                      la cubre), para poder traerla al frente o reposicionarla
