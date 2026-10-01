@@ -27,12 +27,17 @@ const RESULTADO_LABELS = {
 // arrastra las tarjetas para reproducir la distribución física real de los
 // alumnos durante el examen. Es una vista PERSONAL: no se sincroniza entre
 // distintos sinodales/dispositivos.
-const ANCHO_TARJETA = 360;
-// Alto de una tarjeta colapsada (header + fila de botones). Es el único alto
-// fijo que existe: una tarjeta ABIERTA ocupa el mismo espacio en el canvas
-// que una colapsada - su body es position:absolute y NUNCA cuenta para el
-// tamaño ni la posición de la card (ver estiloCuerpoAbierto).
-const ALTO_TARJETA = 140;
+// Ancho de la tarjeta COMPACTA (cerrada). Estimado, a validar en navegador.
+const ANCHO_TARJETA = 190;
+// Ancho del panel abierto (body con PanelCalificacion), independiente del
+// de la tarjeta compacta: se despliega debajo de ella y puede ser más ancho.
+const ANCHO_PANEL = 360;
+// Alto FIJO de la tarjeta compacta (lo impone estiloCardBox). Es el único
+// alto fijo que existe: una tarjeta ABIERTA ocupa el mismo espacio en el
+// canvas que una colapsada - su body es position:absolute y NUNCA cuenta
+// para el tamaño ni la posición de la card (ver estiloCuerpoAbierto).
+// Estimado, a validar en navegador.
+const ALTO_TARJETA = 64;
 const ANCHO_LIENZO = 1400;
 const ANCHO_LIENZO_MAX = 4000;
 const ALTO_LIENZO_MAX = 3000;
@@ -378,8 +383,9 @@ export class TableroCalificacion extends Component {
             `transform: scale(${this.state.zoom}); transform-origin: top left;`;
     }
 
-    // Posición libre de cada card: x/y propios, ancho SIEMPRE fijo (abierta
-    // o colapsada, Paso 1). SIN z-index propio a propósito: si el wrapper
+    // Posición libre de cada card: x/y propios, ancho SIEMPRE fijo de
+    // tarjeta compacta (abierta o colapsada; el body abierto usa su propio
+    // ANCHO_PANEL, ver estiloCuerpoAbierto). SIN z-index propio a propósito: si el wrapper
     // tuviera un z-index numérico, se volvería un stacking context nuevo y
     // atraparía dentro suyo al cardBox/tag, impidiéndoles competir en
     // tiers globales (Z_HEADER_BASE/Z_TAG_BASE) contra los de las demás
@@ -407,8 +413,14 @@ export class TableroCalificacion extends Component {
     // entre cobertura y medición. visibility:hidden esconde exactamente
     // igual (nada del contenido ni el borde queda visible) pero conserva el
     // tamaño en el layout, así el observer siempre mide la altura real.
+    //
+    // height = ALTO_TARJETA (border-box, borde incluido): fija el alto de la
+    // tarjeta compacta para que coincida con _headerRect y para que el body
+    // (top:100%) arranque donde lo asume _cuerpoRect. Sin overflow:hidden
+    // aquí: recortaría al body absoluto, que cuelga por fuera de esta caja.
     estiloCardBox(examenId) {
-        return this.esCubierta(examenId) ? "position: relative; visibility: hidden;" : "position: relative;";
+        const base = `position: relative; height: ${ALTO_TARJETA}px;`;
+        return this.esCubierta(examenId) ? `${base} visibility: hidden;` : base;
     }
 
     // Cabecera (header + fila de botones Expandir/Quitar): tier de z-index
@@ -448,7 +460,7 @@ export class TableroCalificacion extends Component {
     // (el padre) - no repite la condición de cubierta.
     estiloCuerpoAbierto(examenId) {
         const prioridad = this._prioridad(examenId);
-        return `position: absolute; top: 100%; left: 0; width: ${ANCHO_TARJETA}px; ` +
+        return `position: absolute; top: 100%; left: 0; width: ${ANCHO_PANEL}px; ` +
             `max-height: 70vh; overflow-y: auto; z-index: ${prioridad};`;
     }
 
@@ -534,7 +546,7 @@ export class TableroCalificacion extends Component {
             return null;
         }
         const p = this._pos(examenId);
-        return { x: p.x, y: p.y + ALTO_TARJETA, w: ANCHO_TARJETA, h: alto };
+        return { x: p.x, y: p.y + ALTO_TARJETA, w: ANCHO_PANEL, h: alto };
     }
 
     // Los 1-2 rectángulos que ocupa REALMENTE esta card en el lienzo: su
