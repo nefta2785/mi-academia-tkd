@@ -111,7 +111,8 @@
                                 <t t-set="item" t-value="rosterPorExamenId[examenId] || {}"/>
 
                                 <!-- Borde de color = resultado. Si su panel está abierto en el
-                                     dock, estiloCabecera resalta la cabecera (anillo + tinte). -->
+                                     dock se resalta: anillo en la cabecera (estiloCabecera), manija
+                                     en color sólido (estiloManija) e insignia con su número de orden. -->
                                 <div t-att-class="'rounded bg-white shadow-sm border border-2 ' +
                                         (item.resultado === 'aprobado' ? 'border-success' :
                                          item.resultado === 'reprobado' ? 'border-danger' :
@@ -122,11 +123,12 @@
                                          estiloCardBox), sin flex-wrap. El resultado lo indica solo
                                          el color del borde; Cerrar/Expandir/Quitar viven en la barra
                                          de su panel en el dock. -->
-                                    <div t-att-class="estaAbierta(examenId) ? '' : 'bg-light'"
+                                    <div class="bg-light"
                                         t-att-style="estiloCabecera(examenId) + ' height: 100%; overflow: hidden;'">
                                         <div class="d-flex h-100" style="user-select: none;">
-                                            <div class="d-flex align-items-center justify-content-center px-2 text-muted border-end"
-                                                style="cursor: grab; touch-action: none;"
+                                            <div t-att-class="'d-flex align-items-center justify-content-center px-2 border-end ' +
+                                                    (estaAbierta(examenId) ? 'text-white' : 'text-muted')"
+                                                t-att-style="estiloManija(examenId)"
                                                 t-on-pointerdown="(ev) => this.alPresionarManija(ev, examenId)"
                                                 t-on-pointermove="(ev) => this.alMoverManija(ev)"
                                                 t-on-pointerup="(ev) => this.alSoltarManija(ev)"
@@ -161,6 +163,13 @@
                                                 <small class="position-absolute text-muted"
                                                     style="bottom: 2px; right: 4px; font-size: 0.7rem; line-height: 1;"
                                                     t-esc="(state.progreso[examenId] || 0) + '/4'"/>
+                                                <!-- Insignia de orden en el dock: esquina superior izquierda
+                                                     de la zona clicable (libre: ★ va arriba a la derecha y x/4
+                                                     abajo a la derecha); queda sobre el borde de la foto. -->
+                                                <span t-if="estaAbierta(examenId)"
+                                                    class="position-absolute rounded-circle d-flex align-items-center justify-content-center fw-bold text-white"
+                                                    t-att-style="'top: 2px; left: 2px; ' + estiloInsignia"
+                                                    t-esc="numeroAbierta(examenId)"/>
                                             </div>
                                         </div>
                                     </div>
@@ -192,7 +201,10 @@
                         <div t-foreach="state.tarjetasAbiertas" t-as="examenId" t-key="examenId"
                             class="bg-white border rounded"
                             t-att-style="estiloPanelDock">
-                            <div class="d-flex justify-content-end p-2 bg-light border-bottom" style="gap: 0.5rem;">
+                            <div class="d-flex justify-content-end align-items-center p-2 bg-light border-bottom" style="gap: 0.5rem;">
+                                <span class="rounded-circle d-flex align-items-center justify-content-center fw-bold text-white"
+                                    t-att-style="estiloInsignia"
+                                    t-esc="numeroAbierta(examenId)"/>
                                 <button type="button" class="btn btn-sm btn-outline-secondary"
                                     t-on-click="() => this.alternarTarjeta(examenId)">Cerrar</button>
                                 <button type="button" class="btn btn-sm btn-outline-secondary"

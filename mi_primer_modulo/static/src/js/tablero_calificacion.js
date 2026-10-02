@@ -597,16 +597,35 @@ export class TableroCalificacion extends Component {
     // la última card arrastrada o abierta pinte encima de otras cerradas con
     // las que se encime. position:relative para que el z-index aplique.
     // Si su panel está abierto en el dock, se resalta con un anillo interior
-    // primario y fondo tintado: queda DENTRO del borde de color por
-    // resultado, sin taparlo. (Cerrada usa la clase bg-light, ver plantilla:
-    // esa clase lleva !important y taparía este fondo.)
+    // primario: queda DENTRO del borde de color por resultado, sin taparlo.
+    // (Junto con la manija en color sólido y la insignia de orden, ver
+    // estiloManija/estiloInsignia.)
     estiloCabecera(examenId) {
         const prioridad = this._prioridad(examenId);
         const base = `position: relative; z-index: ${Z_HEADER_BASE + prioridad};`;
         return this.estaAbierta(examenId)
-            ? `${base} box-shadow: inset 0 0 0 3px var(--bs-primary); ` +
-                `background-color: var(--bs-primary-bg-subtle, rgba(var(--bs-primary-rgb), 0.15));`
+            ? `${base} box-shadow: inset 0 0 0 3px var(--bs-primary);`
             : base;
+    }
+
+    // Franja de la manija: fondo sólido primario si la tarjeta está abierta
+    // (el icono pasa a blanco con la clase text-white, ver plantilla).
+    estiloManija(examenId) {
+        const base = "cursor: grab; touch-action: none;";
+        return this.estaAbierta(examenId) ? `${base} background-color: var(--bs-primary);` : base;
+    }
+
+    // Número de orden de una tarjeta abierta en el dock (1 = la de más a la
+    // izquierda). Se muestra en la tarjeta y en la barra de su panel.
+    numeroAbierta(examenId) {
+        return this.state.tarjetasAbiertas.indexOf(examenId) + 1;
+    }
+
+    // Insignia circular del número de orden (~18px), igual en la tarjeta y
+    // en el dock; la de la tarjeta además va en posición absoluta.
+    get estiloInsignia() {
+        return "width: 18px; height: 18px; flex-shrink: 0; font-size: 0.65rem; line-height: 1; " +
+            "background-color: var(--bs-primary); box-shadow: 0 0 0 1px #fff;";
     }
 
     // ---- dock de paneles abiertos -------------------------------------
