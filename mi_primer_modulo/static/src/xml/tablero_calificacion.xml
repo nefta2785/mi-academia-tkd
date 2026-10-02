@@ -111,8 +111,9 @@
                                 <t t-set="item" t-value="rosterPorExamenId[examenId] || {}"/>
 
                                 <!-- Borde de color = resultado. Si su panel está abierto en el
-                                     dock se resalta: anillo en la cabecera (estiloCabecera), manija
-                                     en color sólido (estiloManija) e insignia con su número de orden. -->
+                                     dock se resalta: cabecera gris con anillo oscuro (estiloCabecera),
+                                     icono de la manija oscuro (estiloManija) e insignia con su número
+                                     de orden. -->
                                 <div t-att-class="'rounded bg-white shadow-sm border border-2 ' +
                                         (item.resultado === 'aprobado' ? 'border-success' :
                                          item.resultado === 'reprobado' ? 'border-danger' :
@@ -123,11 +124,11 @@
                                          estiloCardBox), sin flex-wrap. El resultado lo indica solo
                                          el color del borde; Cerrar/Expandir/Quitar viven en la barra
                                          de su panel en el dock. -->
-                                    <div class="bg-light"
+                                    <div t-att-class="estaAbierta(examenId) ? '' : 'bg-light'"
                                         t-att-style="estiloCabecera(examenId) + ' height: 100%; overflow: hidden;'">
                                         <div class="d-flex h-100" style="user-select: none;">
                                             <div t-att-class="'d-flex align-items-center justify-content-center px-2 border-end ' +
-                                                    (estaAbierta(examenId) ? 'text-white' : 'text-muted')"
+                                                    (estaAbierta(examenId) ? '' : 'text-muted')"
                                                 t-att-style="estiloManija(examenId)"
                                                 t-on-pointerdown="(ev) => this.alPresionarManija(ev, examenId)"
                                                 t-on-pointermove="(ev) => this.alMoverManija(ev)"
@@ -167,7 +168,7 @@
                                                      de la zona clicable (libre: ★ va arriba a la derecha y x/4
                                                      abajo a la derecha); queda sobre el borde de la foto. -->
                                                 <span t-if="estaAbierta(examenId)"
-                                                    class="position-absolute rounded-circle d-flex align-items-center justify-content-center fw-bold text-white"
+                                                    class="position-absolute rounded-circle d-flex align-items-center justify-content-center fw-bold"
                                                     t-att-style="'top: 2px; left: 2px; ' + estiloInsignia"
                                                     t-esc="numeroAbierta(examenId)"/>
                                             </div>
@@ -201,8 +202,8 @@
                         <div t-foreach="state.tarjetasAbiertas" t-as="examenId" t-key="examenId"
                             class="bg-white border rounded"
                             t-att-style="estiloPanelDock">
-                            <div class="d-flex justify-content-end align-items-center p-2 bg-light border-bottom" style="gap: 0.5rem;">
-                                <span class="rounded-circle d-flex align-items-center justify-content-center fw-bold text-white"
+                            <div class="d-flex justify-content-end align-items-center p-2 border-bottom" t-att-style="estiloBarraDock">
+                                <span class="rounded-circle d-flex align-items-center justify-content-center fw-bold"
                                     t-att-style="estiloInsignia"
                                     t-esc="numeroAbierta(examenId)"/>
                                 <button type="button" class="btn btn-sm btn-outline-secondary"

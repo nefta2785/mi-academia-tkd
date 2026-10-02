@@ -65,6 +65,10 @@ const Z_HEADER_BASE = 500;
 const MAX_ALUMNOS_MESA = 20;
 // Tope de tarjetas por fila en el acomodo automático (ver calcularAcomodo).
 const MAX_POR_FILA = 5;
+// Indicador de tarjeta abierta: colores FIJOS (gris de Bootstrap), sin
+// depender de las variables del tema de Odoo.
+const COLOR_ABIERTA_FONDO = "#ced4da";
+const COLOR_ABIERTA_ACENTO = "#495057";
 
 // Acomodo automático de n tarjetas en filas centradas, como se sientan los
 // alumnos frente al sinodal: la fila 0 es la de adelante (arriba) y las
@@ -596,23 +600,33 @@ export class TableroCalificacion extends Component {
     // Cabecera de la tarjeta compacta: Z_HEADER_BASE + prioridad, para que
     // la última card arrastrada o abierta pinte encima de otras cerradas con
     // las que se encime. position:relative para que el z-index aplique.
-    // Si su panel está abierto en el dock, se resalta con un anillo interior
-    // primario: queda DENTRO del borde de color por resultado, sin taparlo.
-    // (Junto con la manija en color sólido y la insignia de orden, ver
-    // estiloManija/estiloInsignia.)
+    // Si su panel está abierto en el dock, la cabecera entera pasa a fondo
+    // gris (COLOR_ABIERTA_FONDO) con un anillo interior oscuro
+    // (COLOR_ABIERTA_ACENTO): queda DENTRO del borde de color por resultado,
+    // sin taparlo. Cerrada usa la clase bg-light (ver plantilla), que lleva
+    // !important, por eso la plantilla solo la pone cuando está cerrada.
     estiloCabecera(examenId) {
         const prioridad = this._prioridad(examenId);
         const base = `position: relative; z-index: ${Z_HEADER_BASE + prioridad};`;
         return this.estaAbierta(examenId)
-            ? `${base} box-shadow: inset 0 0 0 3px var(--bs-primary);`
+            ? `${base} background-color: ${COLOR_ABIERTA_FONDO}; ` +
+                `box-shadow: inset 0 0 0 3px ${COLOR_ABIERTA_ACENTO};`
             : base;
     }
 
-    // Franja de la manija: fondo sólido primario si la tarjeta está abierta
-    // (el icono pasa a blanco con la clase text-white, ver plantilla).
+    // Franja de la manija: sin fondo propio (toma el de la cabecera); si la
+    // tarjeta está abierta, el icono pasa a COLOR_ABIERTA_ACENTO (cerrada
+    // conserva la clase text-muted, ver plantilla).
     estiloManija(examenId) {
         const base = "cursor: grab; touch-action: none;";
-        return this.estaAbierta(examenId) ? `${base} background-color: var(--bs-primary);` : base;
+        return this.estaAbierta(examenId) ? `${base} color: ${COLOR_ABIERTA_ACENTO};` : base;
+    }
+
+    // Barra de cada panel del dock: mismo gris que la cabecera de la
+    // tarjeta abierta, con borde superior oscuro.
+    get estiloBarraDock() {
+        return `gap: 0.5rem; background-color: ${COLOR_ABIERTA_FONDO}; ` +
+            `border-top: 3px solid ${COLOR_ABIERTA_ACENTO};`;
     }
 
     // Número de orden de una tarjeta abierta en el dock (1 = la de más a la
@@ -625,7 +639,7 @@ export class TableroCalificacion extends Component {
     // en el dock; la de la tarjeta además va en posición absoluta.
     get estiloInsignia() {
         return "width: 18px; height: 18px; flex-shrink: 0; font-size: 0.65rem; line-height: 1; " +
-            "background-color: var(--bs-primary); box-shadow: 0 0 0 1px #fff;";
+            `background-color: ${COLOR_ABIERTA_ACENTO}; color: #fff;`;
     }
 
     // ---- dock de paneles abiertos -------------------------------------
