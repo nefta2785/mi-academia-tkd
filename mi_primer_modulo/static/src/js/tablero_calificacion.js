@@ -54,8 +54,6 @@ const ALTO_LIENZO_RESPALDO = 780;
 const ANCHO_LIENZO_MAX = 4000;
 const ALTO_LIENZO_MAX = 3000;
 const SEPARACION = 16;
-const HOLGURA_ENCIMADO = 40;       // px de traslape tolerado antes de considerar "encimadas"
-const MARGEN_MINIMO = 2;           // separación mínima al buscar hueco libre para una card nueva
 const ZOOM_MIN = 0.5;
 const ZOOM_MAX = 1;
 const ZOOM_PASO = 0.1;
@@ -147,6 +145,9 @@ export class TableroCalificacion extends Component {
             // del sinodal. Se decide al cargar y pasa a false con el primer
             // arrastre; el botón "Acomodar" lo vuelve a true.
             modoAuto: false,
+            // 'sinEvento': true si no se pudo identificar el evento (ver
+            // onWillStart): la plantilla muestra un aviso en lugar de la mesa.
+            sinEvento: false,
         });
 
         // Arrastre libre en curso. No es estado reactivo: solo vive entre
@@ -161,13 +162,19 @@ export class TableroCalificacion extends Component {
         // examenId de la tarjeta recién abierta a la que hay que llevar el
         // scroll del marco en cuanto termine el render (ver onPatched).
         this._scrollPendiente = null;
-        // true si al cargar se entró en modo automático y falta aplicar el
-        // primer acomodo con la medida real del marco (ver el useEffect de
-        // abajo). Se consume una sola vez.
+        // true mientras falte la colocación inicial de la mesa con la medida
+        // real del marco (acomodo en modo automático, o huecos para las
+        // tarjetas sin posición en modo manual - ver el useEffect de abajo).
+        // Se consume una sola vez.
         this._acomodoInicialPendiente = false;
 
         onWillStart(async () => {
-            const eventoId = this.props.action.params.evento_id;
+            const eventoId = this._eventoId();
+            if (eventoId === null) {
+                this.state.sinEvento = true;
+                this.state.cargando = false;
+                return;
+            }
 
             const examenes = await this.orm.searchRead(
                 "taekwondo.examen",
@@ -257,7 +264,7 @@ export class TableroCalificacion extends Component {
             // centinela (0,0)). El acomodo en sí espera a la primera medida
             // del marco (ver _acomodoInicialPendiente).
             this.state.modoAuto = !mesa.some((id) => posiciones[id]);
-            this._acomodoInicialPendiente = this.state.modoAuto;
+            this._acomodoInicialPendiente = true;
 
             this.state.cargando = false;
         });
@@ -291,14 +298,20 @@ export class TableroCalificacion extends Component {
             () => [this.marcoRef.el]
         );
 
-        // Primer acomodo en modo automático: en cuanto exista la primera
-        // medida del marco (state.marcoVisible), una sola vez.
+        // Colocación inicial en cuanto exista la primera medida del marco
+        // (state.marcoVisible), una sola vez. Modo automático: acomodo en
+        // filas. Modo manual: las tarjetas en mesa SIN posición guardada
+        // (que _pos dibujaría todas en 0,0) reciben un hueco libre, en el
+        // orden de la mesa; solo en memoria, sin writes. Las que ya tienen
+        // posición no se tocan.
         useEffect(
             (marcoVisible) => {
                 if (this._acomodoInicialPendiente && marcoVisible) {
                     this._acomodoInicialPendiente = false;
                     if (this.state.modoAuto) {
                         this._acomodarTodo();
+                    } else {
+                        this._colocarSinPosicion();
                     }
                 }
             },
@@ -351,21 +364,34 @@ export class TableroCalificacion extends Component {
         if (this.state.mesa.includes(examenId)) {
             return;
         }
-        // Modo automático: se reacomoda TODA la mesa (ignorando la posición
-        // vieja que la tarjeta pudiera tener guardada). Modo manual: si ya
-        // tenía posición (el sinodal la había acomodado y luego la quitó),
-        // se respeta y reaparece ahí; solo si nunca tuvo posición se le
-        // asigna un hueco automático (para que no aparezca amontonada en
-        // 0,0 encima de otra card).
-        if (!this.state.modoAuto && !this.state.posiciones[examenId]) {
-            this.state.posiciones[examenId] = this._siguienteSlot();
+        // Modo automático: se reacomoda TODA la mesa en memoria (ignorando
+        // la posición vieja que la tarjeta pudiera tener) y en el servidor se
+        // le BORRA esa posición vieja (0,0): si no, al recargar haría entrar
+        // la mesa en modo manual con las demás sin posición.
+        // Modo manual: si ya tenía posición (la había acomodado y luego la
+        // quitó) y ese lugar sigue libre, reaparece ahí; si no, hueco libre.
+        // Esa posición se persiste en el MISMO write que en_mesa, para que
+        // sobreviva a salir y volver.
+        const posicionPrevia = this.state.posiciones[examenId];
+        let valores;
+        if (this.state.modoAuto) {
+            valores = { en_mesa: true, posicion_x: 0, posicion_y: 0 };
+        } else {
+            const otras = this._rectsMesa([]);
+            const previa = posicionPrevia
+                && !otras.some((r) => this._chocan(this._rect(posicionPrevia, this._dimsTarjeta), r));
+            const pos = previa ? posicionPrevia : this._siguienteSlot();
+            // (0,0) es el centinela de "sin posición": se empuja 1px.
+            const nueva = pos.x === 0 && pos.y === 0 ? { x: 1, y: 0 } : { x: pos.x, y: pos.y };
+            this.state.posiciones[examenId] = nueva;
+            valores = { en_mesa: true, posicion_x: nueva.x, posicion_y: nueva.y };
         }
         this.state.mesa.push(examenId);
         if (this.state.modoAuto) {
             this._acomodarTodo();
         }
         try {
-            await this.orm.write("taekwondo.examen", [examenId], { en_mesa: true });
+            await this.orm.write("taekwondo.examen", [examenId], valores);
         } catch (error) {
             // Reversión optimista: si no se pudo persistir, el alumno no
             // se queda "en la mesa" solo en el navegador de este sinodal -
@@ -375,6 +401,11 @@ export class TableroCalificacion extends Component {
             if (this.state.modoAuto) {
                 // Deshace el hueco que se le había hecho a la tarjeta.
                 this._acomodarTodo();
+            } else if (posicionPrevia) {
+                // Revierte también la posición asignada en memoria.
+                this.state.posiciones[examenId] = posicionPrevia;
+            } else {
+                delete this.state.posiciones[examenId];
             }
             this.notification.add(
                 "No se pudo agregar el alumno a la mesa. Intenta de nuevo.",
@@ -386,9 +417,11 @@ export class TableroCalificacion extends Component {
     async quitarDeMesa(examenId) {
         // "Quitar" es PURAMENTE VISUAL: solo saca el examenId del arreglo
         // 'mesa' y persiste en_mesa=False. NO se borra 'state.posiciones'
-        // ni se toca posicion_x/posicion_y en el servidor, para que al
-        // volver a agregar al alumno con "+" reaparezca exactamente donde
-        // el sinodal lo dejó.
+        // ni se toca posicion_x/posicion_y en el servidor. Al volver a
+        // agregar al alumno con "+": en modo manual reaparece en ese mismo
+        // lugar si sigue libre, y si ya choca con otra tarjeta se recoloca
+        // en un hueco (ver agregarAMesa); en modo automático se reacomoda
+        // toda la mesa.
         this.state.mesa = this.state.mesa.filter((id) => id !== examenId);
         this.state.tarjetasAbiertas = this.state.tarjetasAbiertas.filter((id) => id !== examenId);
         if (this.state.expandido === examenId) {
@@ -717,24 +750,26 @@ export class TableroCalificacion extends Component {
         return { x: pos.x, y: pos.y, w: dims.w, h: dims.h };
     }
 
-    _solapeEje(a0, a1, b0, b1) {
-        return Math.min(a1, b1) - Math.max(a0, b0);
+    get _dimsTarjeta() {
+        return { w: ANCHO_TARJETA, h: ALTO_TARJETA };
     }
 
-    // Dos rectángulos "chocan" si se traslapan en AMBOS ejes por más de
-    // HOLGURA_ENCIMADO px. Cada rectángulo se infla MARGEN_MINIMO px por
-    // lado antes de comparar (ver _siguienteSlot).
-    _seSolapan(a, b) {
-        return (
-            this._solapeEje(
-                a.x - MARGEN_MINIMO, a.x + a.w + MARGEN_MINIMO,
-                b.x - MARGEN_MINIMO, b.x + b.w + MARGEN_MINIMO
-            ) > HOLGURA_ENCIMADO &&
-            this._solapeEje(
-                a.y - MARGEN_MINIMO, a.y + a.h + MARGEN_MINIMO,
-                b.y - MARGEN_MINIMO, b.y + b.h + MARGEN_MINIMO
-            ) > HOLGURA_ENCIMADO
-        );
+    // Choque ESTRICTO: inflando cada rectángulo SEPARACION/2 px por lado,
+    // se intersectan con área mayor que 0. Es decir, dos tarjetas que no
+    // chocan quedan con al menos SEPARACION px de aire entre ellas.
+    _chocan(a, b) {
+        const m = SEPARACION / 2;
+        const solapeX = Math.min(a.x + a.w + m, b.x + b.w + m) - Math.max(a.x - m, b.x - m);
+        const solapeY = Math.min(a.y + a.h + m, b.y + b.h + m) - Math.max(a.y - m, b.y - m);
+        return solapeX > 0 && solapeY > 0;
+    }
+
+    // Rectángulos de TODAS las tarjetas de la mesa (las que no tienen
+    // posición, en 0,0, como las dibuja _pos), salvo los ids en 'ignorar'.
+    _rectsMesa(ignorar) {
+        return this.state.mesa
+            .filter((id) => !ignorar.includes(id))
+            .map((id) => this._headerRect(id));
     }
 
     _limitar(x, y) {
@@ -743,28 +778,63 @@ export class TableroCalificacion extends Component {
         return [Math.max(0, Math.min(x, maxX)), Math.max(0, Math.min(y, maxY))];
     }
 
-    // Hueco libre para una card NUEVA (nunca antes posicionada): recorre una
-    // rejilla virtual de ANCHO_TARJETA+SEPARACION y devuelve la primera
-    // celda que no choque con ninguna card ya colocada. Solo se usa al
-    // agregar por primera vez (agregarAMesa) - nunca reposiciona una card
-    // que ya tiene posición guardada.
-    _siguienteSlot() {
-        const colocadas = this.state.mesa
-            .filter((id) => this.state.posiciones[id])
-            .map((id) => this._headerRect(id));
-        const dims = { w: ANCHO_TARJETA, h: ALTO_TARJETA };
-        const cols = Math.max(1, Math.floor(ANCHO_LIENZO / (ANCHO_TARJETA + SEPARACION)));
+    // Hueco libre para una card en modo manual: recorre una rejilla de
+    // paso ANCHO_TARJETA+SEPARACION por ALTO_TARJETA+SEPARACION, con tantas
+    // columnas como quepan en el ancho visible del marco (mismo cálculo y
+    // respaldo que _acomodarTodo, tope MAX_POR_FILA), y devuelve la primera
+    // celda que no choque (criterio estricto, _chocan) con NINGUNA tarjeta
+    // de la mesa, salvo las de 'ignorar' (ver _colocarSinPosicion).
+    _siguienteSlot(ignorar = []) {
+        const colocadas = this._rectsMesa(ignorar);
+        const anchoVisible = this._minimoLienzo("ancho", ANCHO_LIENZO);
+        const cols = Math.max(1, Math.min(
+            MAX_POR_FILA,
+            Math.floor((anchoVisible + SEPARACION) / (ANCHO_TARJETA + SEPARACION))
+        ));
         for (let fila = 0; fila < 60; fila++) {
             for (let col = 0; col < cols; col++) {
                 const x = col * (ANCHO_TARJETA + SEPARACION);
                 const y = fila * (ALTO_TARJETA + SEPARACION);
-                const rect = this._rect({ x, y }, dims);
-                if (!colocadas.some((r) => this._seSolapan(rect, r))) {
+                const rect = this._rect({ x, y }, this._dimsTarjeta);
+                if (!colocadas.some((r) => this._chocan(rect, r))) {
                     return { x, y };
                 }
             }
         }
         return { x: 0, y: 0 };
+    }
+
+    // Carga en modo manual: da un hueco (solo en memoria) a cada tarjeta de
+    // la mesa SIN posición guardada, en el orden de la mesa. Las aún no
+    // colocadas se ignoran como obstáculo (si no, todas estorbarían en 0,0);
+    // las recién colocadas sí cuentan, porque ya tienen posición.
+    _colocarSinPosicion() {
+        const pendientes = this.state.mesa.filter((id) => !this.state.posiciones[id]);
+        while (pendientes.length) {
+            const id = pendientes[0];
+            this.state.posiciones[id] = this._siguienteSlot(pendientes);
+            pendientes.shift();
+        }
+    }
+
+    // Id del evento: params.evento_id al abrir desde el botón del evento;
+    // tras un F5 Odoo reconstruye la acción desde la URL y ese param se
+    // pierde, pero el id sigue llegando como active_id (contexto o params).
+    // Normalizado a número entero positivo; null si no hay ninguno válido.
+    _eventoId() {
+        const action = this.props.action || {};
+        const candidatos = [
+            action.params && action.params.evento_id,
+            action.context && action.context.active_id,
+            action.params && action.params.active_id,
+        ];
+        for (const valor of candidatos) {
+            const id = typeof valor === "string" ? parseInt(valor, 10) : valor;
+            if (Number.isInteger(id) && id > 0) {
+                return id;
+            }
+        }
+        return null;
     }
 
     // ---- rectángulo de la tarjeta compacta ------------------------------

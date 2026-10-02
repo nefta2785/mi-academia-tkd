@@ -3,6 +3,10 @@
     <t t-name="mi_primer_modulo.TableroCalificacion">
         <div class="p-3" style="height: 100%; overflow-y: auto;">
             <div t-if="state.cargando">Cargando información del evento...</div>
+            <!-- Sin id de evento (ver _eventoId): aviso en lugar de Roster y mesa. -->
+            <div t-elif="state.sinEvento" class="alert alert-warning mb-0" role="alert">
+                No se pudo identificar el evento. Regresa al formulario del evento y vuelve a abrir el tablero.
+            </div>
             <!-- Fila Roster + mesa: llena el alto de la raíz (height:100%) y estira
                  ambas columnas; cada una maneja su propio scroll, así la vista de
                  mesa no necesita scroll de página. -->
