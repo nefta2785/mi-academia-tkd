@@ -74,9 +74,8 @@
                         Agrega alumnos del roster con el botón + para empezar a calificar.
                     </div>
 
-                    <div t-elif="state.expandido === null"
-                        class="border rounded position-relative"
-                        style="overflow: auto; max-height: calc(100vh - 220px);">
+                    <t t-elif="state.expandido === null">
+                    <div class="border rounded position-relative" t-att-style="estiloMarco">
 
                         <div class="d-flex justify-content-end align-items-center border-bottom bg-light"
                             style="position: sticky; top: 0; z-index: 40; gap: 6px; padding: 4px 8px;">
@@ -96,22 +95,8 @@
 
                                 <t t-set="item" t-value="rosterPorExamenId[examenId] || {}"/>
 
-                                <!-- Exclusividad total (Paso 1): si esta card está cubierta
-                                     (esCubierta, por solape real de footprint completo contra
-                                     CUALQUIER otra con mayor prioridad, abierta o cerrada), el
-                                     CONTENEDOR EXTERNO COMPLETO (cardBox, el que lleva el
-                                     borde de color) queda oculto con visibility:hidden - borde
-                                     incluido, nunca un layering parcial. NO es display:none: el
-                                     cuerpo abierto vive dentro de cardBox y su altura la mide un
-                                     ResizeObserver (ver setup()/_cuerpoRect); display:none lo
-                                     habría colapsado a 0 en cuanto se cubre, lo que le hacía
-                                     "dejar de solaparse", revelarse, remedirse y volver a
-                                     solaparse - parpadeo infinito (ver el comentario de
-                                     estiloCardBox en el JS). El tag es HERMANO de cardBox, no su
-                                     hijo, así se sigue viendo aunque el resto esté 100% oculto;
-                                     está anclado a SUS propias coordenadas (no a las de quien
-                                     la cubre), para poder traerla al frente o reposicionarla
-                                     sin revelarla. -->
+                                <!-- Borde de color = resultado. Si su panel está abierto en el
+                                     dock, estiloCardBox le agrega un outline primario. -->
                                 <div t-att-class="'rounded bg-white shadow-sm border border-2 ' +
                                         (item.resultado === 'aprobado' ? 'border-success' :
                                          item.resultado === 'reprobado' ? 'border-danger' :
@@ -120,8 +105,8 @@
 
                                     <!-- Tarjeta compacta: alto fijo (ALTO_TARJETA, impuesto por
                                          estiloCardBox), sin flex-wrap. El resultado lo indica solo
-                                         el color del borde; Expandir/Quitar viven en la barra del
-                                         panel abierto (abajo). -->
+                                         el color del borde; Cerrar/Expandir/Quitar viven en la barra
+                                         de su panel en el dock. -->
                                     <div t-att-style="estiloCabecera(examenId) + ' height: 100%; overflow: hidden;'">
                                         <div class="d-flex bg-light h-100" style="user-select: none;">
                                             <div class="d-flex align-items-center justify-content-center px-2 text-muted border-end"
@@ -163,48 +148,38 @@
                                             </div>
                                         </div>
                                     </div>
-
-                                    <div t-if="estaAbierta(examenId)" t-att-data-cuerpo-id="examenId"
-                                        t-att-style="estiloCuerpoAbierto(examenId)">
-                                        <!-- Barra de acciones del panel abierto (antes era la fila 2
-                                             de la tarjeta). Dentro de data-cuerpo-id, así el
-                                             ResizeObserver la mide junto con el panel. -->
-                                        <div class="d-flex justify-content-end p-2 bg-light border-bottom" style="gap: 0.5rem;">
-                                            <button type="button" class="btn btn-sm btn-outline-secondary"
-                                                t-on-click.stop="() => this.expandir(examenId)">Expandir</button>
-                                            <button type="button" class="btn btn-sm btn-outline-danger"
-                                                t-on-click.stop="() => this.quitarDeMesa(examenId)">Quitar de la mesa</button>
-                                        </div>
-                                        <PanelCalificacion t-key="examenId"
-                                            examenId="examenId"
-                                            onGuardado="(id) => this.onCriterioGuardado(id)"
-                                            onResultadoCambiado="(id, valor) => this.onResultadoCambiado(id, valor)"
-                                            onMejorExamenCambiado="(id, valor) => this.onMejorExamenCambiado(id, valor)"/>
-                                    </div>
-                                </div>
-
-                                <!-- Tag de traer al frente (Paso 2): tamaño fijo, sin texto -
-                                     el nombre completo va en el title (tooltip nativo). HERMANO
-                                     del cardBox de arriba (nunca su hijo, ver comentario
-                                     anterior). Posición elegida por estiloTag/_posicionTag,
-                                     evitando colisionar con CUALQUIER card visible o tag ya
-                                     colocado. Drag propio con Pointer Events: un click simple
-                                     (sin mover) trae la card al frente y la abre; arrastrarlo
-                                     reposiciona la card SIN revelarla (ver
-                                     alPresionarTag/alSoltarTag). -->
-                                <div t-if="esCubierta(examenId)"
-                                    class="d-flex align-items-center justify-content-center rounded bg-white border shadow-sm text-muted"
-                                    t-att-style="estiloTag(examenId)"
-                                    t-on-pointerdown="(ev) => this.alPresionarTag(ev, examenId)"
-                                    t-on-pointermove="(ev) => this.alMoverTag(ev)"
-                                    t-on-pointerup="(ev) => this.alSoltarTag(ev)"
-                                    t-on-pointercancel="(ev) => this.alSoltarTag(ev)"
-                                    t-att-title="item.name || ('Examen ' + examenId)">
-                                    <i class="fa fa-user"/>
                                 </div>
                             </div>
                         </div>
                     </div>
+
+                    <!-- Dock: un panel por tarjeta abierta, en el orden de
+                         tarjetasAbiertas, lado a lado y sin traslapes. Scroll
+                         horizontal propio; cada panel con su scroll vertical
+                         (estiloPanelDock). Vive en esta misma rama t-elif, así que
+                         al expandir se desmonta junto con la mesa. -->
+                    <div t-if="state.tarjetasAbiertas.length"
+                        class="d-flex mt-3 pb-2"
+                        style="flex-wrap: nowrap; align-items: flex-start; gap: 16px; overflow-x: auto;">
+                        <div t-foreach="state.tarjetasAbiertas" t-as="examenId" t-key="examenId"
+                            class="bg-white border rounded"
+                            t-att-style="estiloPanelDock">
+                            <div class="d-flex justify-content-end p-2 bg-light border-bottom" style="gap: 0.5rem;">
+                                <button type="button" class="btn btn-sm btn-outline-secondary"
+                                    t-on-click="() => this.alternarTarjeta(examenId)">Cerrar</button>
+                                <button type="button" class="btn btn-sm btn-outline-secondary"
+                                    t-on-click="() => this.expandir(examenId)">Expandir</button>
+                                <button type="button" class="btn btn-sm btn-outline-danger"
+                                    t-on-click="() => this.quitarDeMesa(examenId)">Quitar de la mesa</button>
+                            </div>
+                            <PanelCalificacion t-key="examenId"
+                                examenId="examenId"
+                                onGuardado="(id) => this.onCriterioGuardado(id)"
+                                onResultadoCambiado="(id, valor) => this.onResultadoCambiado(id, valor)"
+                                onMejorExamenCambiado="(id, valor) => this.onMejorExamenCambiado(id, valor)"/>
+                        </div>
+                    </div>
+                    </t>
 
                     <div t-else="">
                         <button type="button" class="btn btn-secondary mb-3"
