@@ -64,14 +64,19 @@
                                     t-esc="(state.progreso[item.examenId] || 0) + '/4'"/>
                             </div>
                             <button type="button" class="btn btn-sm btn-primary ms-2"
-                                t-att-disabled="state.mesa.includes(item.examenId)"
+                                t-att-disabled="state.mesa.includes(item.examenId) || mesaLlena"
                                 t-on-click="() => this.agregarAMesa(item.examenId)">+</button>
                         </div>
                     </div>
                 </div>
 
                 <div class="flex-grow-1 d-flex flex-column" style="min-width: 0; min-height: 0;" t-ref="columnaMesa">
-                    <h4>Mesa de calificación</h4>
+                    <div class="d-flex align-items-center mb-2" style="gap: 0.75rem;">
+                        <h4 class="mb-0">Mesa de calificación</h4>
+                        <button t-if="state.mesa.length" type="button" class="btn btn-sm btn-outline-secondary"
+                            t-on-click="() => this.acomodar()"
+                            title="Borrar posiciones y acomodar en filas centradas">Acomodar</button>
+                    </div>
 
                     <div t-if="!state.mesa.length" class="text-muted">
                         Agrega alumnos del roster con el botón + para empezar a calificar.

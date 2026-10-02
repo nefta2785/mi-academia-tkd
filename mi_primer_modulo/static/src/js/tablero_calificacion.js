@@ -63,6 +63,41 @@ const ZOOM_PASO = 0.1;
 // (ver _prioridad) para que la última tarjeta arrastrada o abierta quede
 // encima de otras cerradas con las que se encime.
 const Z_HEADER_BASE = 500;
+// Tope de alumnos simultáneos en la mesa (deshabilita el "+" del Roster).
+const MAX_ALUMNOS_MESA = 20;
+// Tope de tarjetas por fila en el acomodo automático (ver calcularAcomodo).
+const MAX_POR_FILA = 5;
+
+// Acomodo automático de n tarjetas en filas centradas, como se sientan los
+// alumnos frente al sinodal: la fila 0 es la de adelante (arriba) y las
+// filas de atrás llevan las tarjetas sobrantes. anchoVisible va en
+// unidades del lienzo (sin escalar por zoom). Devuelve n posiciones {x, y}
+// en orden: fila 0 de izquierda a derecha, luego fila 1, etc. y nunca es 0
+// (margen SEPARACION arriba), así que (0,0) sigue siendo el centinela de
+// "sin posición". Función pura: exportada para poder probarla aparte.
+export function calcularAcomodo(n, anchoVisible) {
+    if (n <= 0) {
+        return [];
+    }
+    const maxPorFila = Math.max(1, Math.min(
+        MAX_POR_FILA,
+        Math.floor((anchoVisible + SEPARACION) / (ANCHO_TARJETA + SEPARACION))
+    ));
+    const filas = n <= Math.min(3, maxPorFila) ? 1 : Math.max(2, Math.ceil(n / maxPorFila));
+    const base = Math.floor(n / filas);
+    const extra = n % filas;
+    const posiciones = [];
+    for (let i = 0; i < filas; i++) {
+        const k = base + (i >= filas - extra ? 1 : 0);
+        const anchoFila = k * ANCHO_TARJETA + (k - 1) * SEPARACION;
+        const x0 = Math.max(0, Math.floor((anchoVisible - anchoFila) / 2));
+        const y = SEPARACION + i * (ALTO_TARJETA + SEPARACION);
+        for (let j = 0; j < k; j++) {
+            posiciones.push({ x: x0 + j * (ANCHO_TARJETA + SEPARACION), y });
+        }
+    }
+    return posiciones;
+}
 
 export class TableroCalificacion extends Component {
     static template = "mi_primer_modulo.TableroCalificacion";
@@ -107,6 +142,11 @@ export class TableroCalificacion extends Component {
             progreso: {},
             altoDock: null,
             marcoVisible: null,
+            // 'modoAuto': true = la mesa se acomoda sola en filas centradas
+            // (calcularAcomodo) al agregar/quitar; false = posiciones libres
+            // del sinodal. Se decide al cargar y pasa a false con el primer
+            // arrastre; el botón "Acomodar" lo vuelve a true.
+            modoAuto: false,
         });
 
         // Arrastre libre en curso. No es estado reactivo: solo vive entre
@@ -121,6 +161,10 @@ export class TableroCalificacion extends Component {
         // examenId de la tarjeta recién abierta a la que hay que llevar el
         // scroll del marco en cuanto termine el render (ver onPatched).
         this._scrollPendiente = null;
+        // true si al cargar se entró en modo automático y falta aplicar el
+        // primer acomodo con la medida real del marco (ver el useEffect de
+        // abajo). Se consume una sola vez.
+        this._acomodoInicialPendiente = false;
 
         onWillStart(async () => {
             const eventoId = this.props.action.params.evento_id;
@@ -208,6 +252,12 @@ export class TableroCalificacion extends Component {
             }
             this.state.mesa = mesa;
             this.state.posiciones = posiciones;
+            // Modo automático solo si NINGUNA tarjeta de la mesa tiene
+            // posición guardada (mismo criterio que arriba: distinta del
+            // centinela (0,0)). El acomodo en sí espera a la primera medida
+            // del marco (ver _acomodoInicialPendiente).
+            this.state.modoAuto = !mesa.some((id) => posiciones[id]);
+            this._acomodoInicialPendiente = this.state.modoAuto;
 
             this.state.cargando = false;
         });
@@ -239,6 +289,20 @@ export class TableroCalificacion extends Component {
                 return () => observador.disconnect();
             },
             () => [this.marcoRef.el]
+        );
+
+        // Primer acomodo en modo automático: en cuanto exista la primera
+        // medida del marco (state.marcoVisible), una sola vez.
+        useEffect(
+            (marcoVisible) => {
+                if (this._acomodoInicialPendiente && marcoVisible) {
+                    this._acomodoInicialPendiente = false;
+                    if (this.state.modoAuto) {
+                        this._acomodarTodo();
+                    }
+                }
+            },
+            () => [this.state.marcoVisible]
         );
 
         // Auto-scroll al abrir una tarjeta: corre DESPUÉS del patch, cuando
@@ -287,14 +351,19 @@ export class TableroCalificacion extends Component {
         if (this.state.mesa.includes(examenId)) {
             return;
         }
-        // Si ya tenía posición (el sinodal lo había acomodado y luego lo
-        // quitó), se respeta y reaparece ahí. Solo si nunca tuvo posición
-        // se le asigna un hueco automático (para que no aparezca amontonada
-        // en 0,0 encima de otra card).
-        if (!this.state.posiciones[examenId]) {
+        // Modo automático: se reacomoda TODA la mesa (ignorando la posición
+        // vieja que la tarjeta pudiera tener guardada). Modo manual: si ya
+        // tenía posición (el sinodal la había acomodado y luego la quitó),
+        // se respeta y reaparece ahí; solo si nunca tuvo posición se le
+        // asigna un hueco automático (para que no aparezca amontonada en
+        // 0,0 encima de otra card).
+        if (!this.state.modoAuto && !this.state.posiciones[examenId]) {
             this.state.posiciones[examenId] = this._siguienteSlot();
         }
         this.state.mesa.push(examenId);
+        if (this.state.modoAuto) {
+            this._acomodarTodo();
+        }
         try {
             await this.orm.write("taekwondo.examen", [examenId], { en_mesa: true });
         } catch (error) {
@@ -303,6 +372,10 @@ export class TableroCalificacion extends Component {
             // eso volvería a divergir del servidor, el mismo tipo de bug
             // que estamos arreglando.
             this.state.mesa = this.state.mesa.filter((id) => id !== examenId);
+            if (this.state.modoAuto) {
+                // Deshace el hueco que se le había hecho a la tarjeta.
+                this._acomodarTodo();
+            }
             this.notification.add(
                 "No se pudo agregar el alumno a la mesa. Intenta de nuevo.",
                 { type: "danger" }
@@ -323,6 +396,9 @@ export class TableroCalificacion extends Component {
         }
         try {
             await this.orm.write("taekwondo.examen", [examenId], { en_mesa: false });
+            if (this.state.modoAuto) {
+                this._acomodarTodo();
+            }
         } catch (error) {
             // Revertimos SOLO la pertenencia a la mesa: tarjetasAbiertas y
             // expandido no se restauran porque su estado no es lo que
@@ -333,6 +409,65 @@ export class TableroCalificacion extends Component {
                 "No se pudo quitar el alumno de la mesa. Intenta de nuevo.",
                 { type: "danger" }
             );
+        }
+    }
+
+    // ---- acomodo automático ------------------------------------------
+
+    // true cuando la mesa llegó al tope: deshabilita el "+" del Roster.
+    get mesaLlena() {
+        return this.state.mesa.length >= MAX_ALUMNOS_MESA;
+    }
+
+    // Reacomoda TODA la mesa en filas centradas (calcularAcomodo), en el
+    // orden de entrada de state.mesa, sobre el ancho visible del marco en
+    // unidades del lienzo (o ANCHO_LIENZO si aún no se ha medido). SOLO
+    // escribe en memoria (state.posiciones): nunca al servidor.
+    _acomodarTodo() {
+        const anchoVisible = this._minimoLienzo("ancho", ANCHO_LIENZO);
+        const acomodo = calcularAcomodo(this.state.mesa.length, anchoVisible);
+        this.state.mesa.forEach((id, i) => {
+            this.state.posiciones[id] = acomodo[i];
+        });
+    }
+
+    // Botón "Acomodar": borra en el servidor las posiciones de TODOS los
+    // exámenes del evento (un solo write) y, si eso funcionó, vuelve al
+    // modo automático y reacomoda. Si falla no toca nada local. No cierra
+    // ni toca los paneles abiertos.
+    async acomodar() {
+        const ids = this.state.roster.map((item) => item.examenId);
+        try {
+            await this.orm.write("taekwondo.examen", ids, { posicion_x: 0, posicion_y: 0 });
+        } catch (error) {
+            console.error("No se pudieron borrar las posiciones de la mesa", error);
+            return;
+        }
+        for (const id of ids) {
+            delete this.state.posiciones[id];
+        }
+        this.state.modoAuto = true;
+        this._acomodarTodo();
+    }
+
+    // Primer arrastre en modo automático: la mesa pasa a modo manual y se
+    // persisten las posiciones actuales (las del acomodo, que solo vivían en
+    // memoria) de todas las demás tarjetas en mesa, para que al recargar
+    // aparezcan donde el sinodal las vio. La arrastrada la guarda
+    // alSoltarManija como siempre.
+    async _pasarAManual(examenIdArrastrado) {
+        this.state.modoAuto = false;
+        const otras = this.state.mesa.filter((id) => id !== examenIdArrastrado && this.state.posiciones[id]);
+        try {
+            await Promise.all(otras.map((id) => {
+                const p = this.state.posiciones[id];
+                return this.orm.write("taekwondo.examen", [id], {
+                    posicion_x: p.x === 0 && p.y === 0 ? 1 : p.x,
+                    posicion_y: p.y,
+                });
+            }));
+        } catch (error) {
+            console.error("No se pudieron guardar las posiciones de la mesa", error);
         }
     }
 
@@ -733,6 +868,10 @@ export class TableroCalificacion extends Component {
         this._arrastre = null;
         if (!a.movido) {
             return;
+        }
+        if (this.state.modoAuto) {
+            // Sin await: se lanza en paralelo al write de la arrastrada.
+            this._pasarAManual(a.examenId);
         }
         const p = this.state.posiciones[a.examenId];
         // (0,0) es el centinela de "sin posición": si la tarjeta acabó justo
