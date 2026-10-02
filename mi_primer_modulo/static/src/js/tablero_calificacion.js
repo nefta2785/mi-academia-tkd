@@ -1,4 +1,4 @@
-import { Component, onWillStart, useRef, useState } from "@odoo/owl";
+import { Component, onPatched, onWillStart, useEffect, useRef, useState } from "@odoo/owl";
 import { registry } from "@web/core/registry";
 import { useService } from "@web/core/utils/hooks";
 import { standardActionServiceProps } from "@web/webclient/actions/action_service";
@@ -36,14 +36,21 @@ const ANCHO_PANEL = 360;
 // tarjeta no cambia su tamaño en el lienzo: su panel va al dock, fuera del
 // lienzo. Estimado, a validar en navegador.
 const ALTO_TARJETA = 64;
-// Alturas del marco de la mesa y del dock (estimados, a validar en
-// navegador). Sin paneles abiertos el marco usa ALTO_MARCO_SIN_DOCK; con
-// dock se encoge a ALTO_MARCO_CON_DOCK para dejarle espacio debajo, y cada
-// panel del dock tiene su propio scroll vertical a partir de ALTO_PANEL_DOCK.
-const ALTO_MARCO_SIN_DOCK = "calc(100vh - 220px)";
-const ALTO_MARCO_CON_DOCK = "40vh";
-const ALTO_PANEL_DOCK = "50vh";
+// Reparto de alto entre el marco de la mesa y el dock: el marco toma lo
+// que sobra (flex) y el dock un alto en px (state.altoDock) que el sinodal
+// ajusta arrastrando el divisor. Ninguno de los dos baja de su mínimo.
+const ALTO_MIN_MARCO = 200;
+const ALTO_MIN_DOCK = 200;
+const ALTO_DIVISOR = 10;
+const FRACCION_INICIAL_DOCK = 0.6;  // la 1a vez que se abre el dock
+const ALTO_DOCK_RESPALDO = 300;     // si aún no se puede medir la columna
+// Margen que se deja alrededor de una tarjeta al llevar el scroll hacia ella.
+const MARGEN_SCROLL = 16;
+// ANCHO_LIENZO: ancho mínimo del lienzo mientras no se haya medido el marco
+// (y rejilla de _siguienteSlot). ALTO_LIENZO_RESPALDO: lo mismo para el
+// alto (700 + 80 de margen, el mínimo de antes).
 const ANCHO_LIENZO = 1400;
+const ALTO_LIENZO_RESPALDO = 780;
 const ANCHO_LIENZO_MAX = 4000;
 const ALTO_LIENZO_MAX = 3000;
 const SEPARACION = 16;
@@ -68,6 +75,9 @@ export class TableroCalificacion extends Component {
         this.orm = useService("orm");
         this.notification = useService("notification");
         this.lienzoRef = useRef("lienzo");
+        this.marcoRef = useRef("marco");
+        this.barraZoomRef = useRef("barraZoom");
+        this.columnaRef = useRef("columnaMesa");
 
         this.state = useState({
             cargando: true,
@@ -83,6 +93,11 @@ export class TableroCalificacion extends Component {
             // más alto = más arriba visualmente cuando dos tarjetas se enciman.
             // 'expandido': tarjeta a pantalla completa, o null.
             // 'zoom': factor de escala manual del tablero completo (0.5-1).
+            // 'altoDock': alto en px del dock, o null hasta la 1a apertura
+            // (ver alternarTarjeta). Solo vive en memoria.
+            // 'marcoVisible': {ancho, alto} en px de pantalla del área útil
+            // del marco (sin barras de scroll ni barra de zoom), medido por
+            // el ResizeObserver de abajo; null mientras no se ha medido.
             mesa: [],
             posiciones: {},
             tarjetasAbiertas: [],
@@ -90,6 +105,8 @@ export class TableroCalificacion extends Component {
             expandido: null,
             zoom: ZOOM_MAX,
             progreso: {},
+            altoDock: null,
+            marcoVisible: null,
         });
 
         // Arrastre libre en curso. No es estado reactivo: solo vive entre
@@ -98,6 +115,12 @@ export class TableroCalificacion extends Component {
         // Contador monótono para "traer al frente" (abrir o arrastrar una
         // card le asigna el siguiente número; nunca baja).
         this._zSiguiente = 10;
+        // Arrastre del divisor marco/dock en curso. No reactivo, igual que
+        // _arrastre: solo vive durante un gesto.
+        this._arrastreDivisor = null;
+        // examenId de la tarjeta recién abierta a la que hay que llevar el
+        // scroll del marco en cuanto termine el render (ver onPatched).
+        this._scrollPendiente = null;
 
         onWillStart(async () => {
             const eventoId = this.props.action.params.evento_id;
@@ -187,6 +210,46 @@ export class TableroCalificacion extends Component {
             this.state.posiciones = posiciones;
 
             this.state.cargando = false;
+        });
+
+        // Mide el área útil del marco para que el lienzo la llene como
+        // mínimo (ver anchoLienzo/altoLienzo). La dependencia es el propio
+        // elemento del marco: cuando la rama t-elif lo desmonta (Expandir)
+        // y lo vuelve a montar (Regresar) el elemento cambia, así que Owl
+        // corre la limpieza (disconnect) y vuelve a conectar sobre el nuevo.
+        // También se limpia al desmontar el componente.
+        useEffect(
+            (marco) => {
+                if (!marco) {
+                    return;
+                }
+                const medir = () => {
+                    const barra = this.barraZoomRef.el;
+                    const ancho = marco.clientWidth;
+                    const alto = marco.clientHeight - (barra ? barra.offsetHeight : 0);
+                    const previo = this.state.marcoVisible;
+                    // Solo escribimos si cambió: evita renders de más.
+                    if (!previo || previo.ancho !== ancho || previo.alto !== alto) {
+                        this.state.marcoVisible = { ancho, alto };
+                    }
+                };
+                const observador = new ResizeObserver(medir);
+                observador.observe(marco);
+                medir();
+                return () => observador.disconnect();
+            },
+            () => [this.marcoRef.el]
+        );
+
+        // Auto-scroll al abrir una tarjeta: corre DESPUÉS del patch, cuando
+        // el dock ya está en el DOM y el marco ya se encogió (leer
+        // clientHeight/scrollTop fuerza el layout actualizado).
+        onPatched(() => {
+            if (this._scrollPendiente !== null) {
+                const examenId = this._scrollPendiente;
+                this._scrollPendiente = null;
+                this._scrollHaciaTarjeta(examenId);
+            }
         });
     }
 
@@ -281,8 +344,14 @@ export class TableroCalificacion extends Component {
         if (this.state.tarjetasAbiertas.includes(examenId)) {
             this.state.tarjetasAbiertas = this.state.tarjetasAbiertas.filter((id) => id !== examenId);
         } else {
+            if (this.state.altoDock === null) {
+                this.state.altoDock = this._altoDockInicial();
+            }
             this.state.tarjetasAbiertas.push(examenId);
             this._traerAlFrente(examenId);
+            // Solo al abrir: el scroll se aplica en onPatched, con el marco
+            // ya encogido por el dock.
+            this._scrollPendiente = examenId;
         }
     }
 
@@ -304,19 +373,32 @@ export class TableroCalificacion extends Component {
         // Alto real de cada card SIEMPRE es ALTO_TARJETA (su panel abierto
         // va al dock, fuera del lienzo): el lienzo crece solo según hasta
         // dónde se arrastró alguna card.
-        let maxAbajo = 700;
+        // Mínimo: el alto útil del marco en unidades del lienzo (÷ zoom).
+        let maxAbajo = this._minimoLienzo("alto", ALTO_LIENZO_RESPALDO);
         for (const id of this.state.mesa) {
-            maxAbajo = Math.max(maxAbajo, this._pos(id).y + ALTO_TARJETA);
+            maxAbajo = Math.max(maxAbajo, this._pos(id).y + ALTO_TARJETA + 80);
         }
-        return Math.min(maxAbajo + 80, ALTO_LIENZO_MAX);
+        return Math.min(maxAbajo, ALTO_LIENZO_MAX);
     }
 
     get anchoLienzo() {
-        let maxDerecha = ANCHO_LIENZO;
+        // Mínimo: el ancho útil del marco en unidades del lienzo (÷ zoom).
+        let maxDerecha = this._minimoLienzo("ancho", ANCHO_LIENZO);
         for (const id of this.state.mesa) {
             maxDerecha = Math.max(maxDerecha, this._pos(id).x + ANCHO_TARJETA + 80);
         }
         return Math.min(maxDerecha, ANCHO_LIENZO_MAX);
+    }
+
+    // Tamaño útil del marco ('ancho' o 'alto') pasado a unidades del lienzo,
+    // o 'respaldo' si aún no se ha medido. floor: nunca un px de más que
+    // genere barras de scroll por redondeo.
+    _minimoLienzo(eje, respaldo) {
+        const visible = this.state.marcoVisible;
+        if (!visible) {
+            return respaldo;
+        }
+        return Math.floor(visible[eje] / this.state.zoom);
     }
 
     // Estilo del canvas: tamaño dinámico (crece con las cards) + el zoom
@@ -338,36 +420,156 @@ export class TableroCalificacion extends Component {
 
     // Contenedor externo (el que lleva el borde de color por resultado).
     // height = ALTO_TARJETA (border-box, borde incluido): fija el alto de la
-    // tarjeta compacta para que coincida con _headerRect. Si su panel está
-    // abierto en el dock, se resalta con un outline del color primario, que
-    // no cambia el color del borde de resultado ni el tamaño de la card.
+    // tarjeta compacta para que coincida con _headerRect.
     estiloCardBox(examenId) {
-        const base = `position: relative; height: ${ALTO_TARJETA}px;`;
-        return this.estaAbierta(examenId)
-            ? `${base} outline: 3px solid var(--bs-primary); outline-offset: 2px;`
-            : base;
+        return `position: relative; height: ${ALTO_TARJETA}px;`;
     }
 
     // Cabecera de la tarjeta compacta: Z_HEADER_BASE + prioridad, para que
     // la última card arrastrada o abierta pinte encima de otras cerradas con
     // las que se encime. position:relative para que el z-index aplique.
+    // Si su panel está abierto en el dock, se resalta con un anillo interior
+    // primario y fondo tintado: queda DENTRO del borde de color por
+    // resultado, sin taparlo. (Cerrada usa la clase bg-light, ver plantilla:
+    // esa clase lleva !important y taparía este fondo.)
     estiloCabecera(examenId) {
         const prioridad = this._prioridad(examenId);
-        return `position: relative; z-index: ${Z_HEADER_BASE + prioridad};`;
+        const base = `position: relative; z-index: ${Z_HEADER_BASE + prioridad};`;
+        return this.estaAbierta(examenId)
+            ? `${base} box-shadow: inset 0 0 0 3px var(--bs-primary); ` +
+                `background-color: var(--bs-primary-bg-subtle, rgba(var(--bs-primary-rgb), 0.15));`
+            : base;
     }
 
     // ---- dock de paneles abiertos -------------------------------------
 
-    // Marco de la mesa: se encoge cuando hay dock debajo para dejarle sitio.
-    get estiloMarco() {
-        const alto = this.state.tarjetasAbiertas.length ? ALTO_MARCO_CON_DOCK : ALTO_MARCO_SIN_DOCK;
-        return `overflow: auto; max-height: ${alto};`;
+    // Dock: alto en px elegido con el divisor; no crece ni se encoge con
+    // flex (el marco es quien absorbe el resto de la columna).
+    get estiloDock() {
+        return `height: ${this.state.altoDock || ALTO_DOCK_RESPALDO}px; flex: 0 0 auto; ` +
+            `flex-wrap: nowrap; align-items: stretch; gap: 16px; overflow-x: auto;`;
+    }
+
+    get estiloDivisor() {
+        return `height: ${ALTO_DIVISOR}px; flex: 0 0 auto; cursor: row-resize; touch-action: none;`;
     }
 
     // Cada panel del dock: ancho fijo (no se encoge al haber varios; el dock
-    // hace scroll horizontal) y scroll vertical propio.
+    // hace scroll horizontal), alto = el del dock (align-items: stretch) y
+    // scroll vertical propio.
     get estiloPanelDock() {
-        return `width: ${ANCHO_PANEL}px; flex-shrink: 0; max-height: ${ALTO_PANEL_DOCK}; overflow-y: auto;`;
+        return `width: ${ANCHO_PANEL}px; flex-shrink: 0; overflow-y: auto;`;
+    }
+
+    // Alto disponible para marco + dock: desde el borde superior del marco
+    // hasta el fondo de la columna, menos el divisor. null si no se puede
+    // medir (marco o columna no montados).
+    _altoDisponible() {
+        const marco = this.marcoRef.el;
+        const columna = this.columnaRef.el;
+        if (!marco || !columna) {
+            return null;
+        }
+        return columna.getBoundingClientRect().bottom - marco.getBoundingClientRect().top - ALTO_DIVISOR;
+    }
+
+    _limitarAltoDock(alto, disponible) {
+        return Math.max(ALTO_MIN_DOCK, Math.min(alto, disponible - ALTO_MIN_MARCO));
+    }
+
+    _altoDockInicial() {
+        const disponible = this._altoDisponible();
+        if (disponible === null) {
+            return ALTO_DOCK_RESPALDO;
+        }
+        return Math.round(this._limitarAltoDock(disponible * FRACCION_INICIAL_DOCK, disponible));
+    }
+
+    // ---- divisor marco/dock (Pointer Events, mismo patrón que la manija) --
+    //
+    // Arrastrar hacia ARRIBA agranda el dock; hacia abajo lo achica. Sin
+    // zoom ni _limitar (el divisor está fuera del lienzo) y sin escribir al
+    // servidor: el alto solo vive en memoria.
+
+    alPresionarDivisor(ev) {
+        const disponible = this._altoDisponible();
+        if (disponible === null) {
+            return;
+        }
+        ev.preventDefault();
+        ev.target.setPointerCapture(ev.pointerId);
+        this._arrastreDivisor = {
+            pointerId: ev.pointerId,
+            yInicial: ev.clientY,
+            altoInicial: this.state.altoDock || ALTO_DOCK_RESPALDO,
+            disponible,
+        };
+    }
+
+    alMoverDivisor(ev) {
+        const a = this._arrastreDivisor;
+        if (!a || ev.pointerId !== a.pointerId) {
+            return;
+        }
+        ev.preventDefault();
+        const alto = a.altoInicial + (a.yInicial - ev.clientY);
+        this.state.altoDock = Math.round(this._limitarAltoDock(alto, a.disponible));
+    }
+
+    alSoltarDivisor(ev) {
+        const a = this._arrastreDivisor;
+        if (!a || ev.pointerId !== a.pointerId) {
+            return;
+        }
+        if (ev.target.hasPointerCapture(ev.pointerId)) {
+            ev.target.releasePointerCapture(ev.pointerId);
+        }
+        this._arrastreDivisor = null;
+    }
+
+    // ---- auto-scroll hacia una tarjeta ----------------------------------
+
+    // Scroll MÍNIMO del marco (nunca de la página) para que la tarjeta quede
+    // completa a la vista, con MARGEN_SCROLL alrededor. Si ya se ve entera,
+    // no hace nada. Coordenadas en px del contenido scrolleable del marco:
+    // el lienzo está escalado desde su esquina superior izquierda, así que
+    // la tarjeta va en (x·zoom, y·zoom) a partir del origen del lienzo, y la
+    // barra de zoom sticky tapa la franja superior del área visible.
+    _scrollHaciaTarjeta(examenId) {
+        const marco = this.marcoRef.el;
+        const lienzo = this.lienzoRef.el;
+        if (!marco || !lienzo) {
+            return;
+        }
+        const zoom = this.state.zoom;
+        const p = this._pos(examenId);
+        const izq = lienzo.offsetLeft + p.x * zoom;
+        const arriba = lienzo.offsetTop + p.y * zoom;
+        const der = izq + ANCHO_TARJETA * zoom;
+        const abajo = arriba + ALTO_TARJETA * zoom;
+
+        const barra = this.barraZoomRef.el;
+        const altoBarra = barra ? barra.offsetHeight : 0;
+        const vistaIzq = marco.scrollLeft;
+        const vistaDer = vistaIzq + marco.clientWidth;
+        const vistaArriba = marco.scrollTop + altoBarra;
+        const vistaAbajo = marco.scrollTop + marco.clientHeight;
+
+        let left = marco.scrollLeft;
+        if (izq < vistaIzq) {
+            left = izq - MARGEN_SCROLL;
+        } else if (der > vistaDer) {
+            left = der + MARGEN_SCROLL - marco.clientWidth;
+        }
+        let top = marco.scrollTop;
+        if (arriba < vistaArriba) {
+            top = arriba - MARGEN_SCROLL - altoBarra;
+        } else if (abajo > vistaAbajo) {
+            top = abajo + MARGEN_SCROLL - marco.clientHeight;
+        }
+        if (left !== marco.scrollLeft || top !== marco.scrollTop) {
+            marco.scrollTo({ left: Math.max(0, left), top: Math.max(0, top) });
+        }
     }
 
     // ---- geometría / colisión (rectángulos) -----------------------------

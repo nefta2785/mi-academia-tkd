@@ -3,7 +3,10 @@
     <t t-name="mi_primer_modulo.TableroCalificacion">
         <div class="p-3" style="height: 100%; overflow-y: auto;">
             <div t-if="state.cargando">Cargando información del evento...</div>
-            <div t-else="" class="d-flex" style="align-items: flex-start; gap: 1rem;">
+            <!-- Fila Roster + mesa: llena el alto de la raíz (height:100%) y estira
+                 ambas columnas; cada una maneja su propio scroll, así la vista de
+                 mesa no necesita scroll de página. -->
+            <div t-else="" class="d-flex" style="align-items: stretch; gap: 1rem; height: 100%;">
 
                 <div t-if="state.rosterColapsado" class="flex-shrink-0">
                     <button type="button" class="btn btn-sm btn-light border"
@@ -12,7 +15,7 @@
                     </button>
                 </div>
 
-                <div t-else="" style="width: 320px; flex-shrink: 0;" class="border-end pe-3">
+                <div t-else="" style="width: 320px; flex-shrink: 0; max-height: 100%; overflow-y: auto;" class="border-end pe-3">
                     <div class="d-flex justify-content-between align-items-center mb-2">
                         <h4 class="mb-0">Roster</h4>
                         <button type="button" class="btn btn-sm btn-light border"
@@ -67,7 +70,7 @@
                     </div>
                 </div>
 
-                <div class="flex-grow-1" style="min-width: 0;">
+                <div class="flex-grow-1 d-flex flex-column" style="min-width: 0; min-height: 0;" t-ref="columnaMesa">
                     <h4>Mesa de calificación</h4>
 
                     <div t-if="!state.mesa.length" class="text-muted">
@@ -75,10 +78,13 @@
                     </div>
 
                     <t t-elif="state.expandido === null">
-                    <div class="border rounded position-relative" t-att-style="estiloMarco">
+                    <!-- Marco: toma todo el alto que deja el dock (flex 1 1 0). -->
+                    <div class="border rounded position-relative" t-ref="marco"
+                        style="flex: 1 1 0; min-height: 0; overflow: auto;">
 
                         <div class="d-flex justify-content-end align-items-center border-bottom bg-light"
-                            style="position: sticky; top: 0; z-index: 40; gap: 6px; padding: 4px 8px;">
+                            style="position: sticky; top: 0; z-index: 40; gap: 6px; padding: 4px 8px;"
+                            t-ref="barraZoom">
                             <button type="button" class="btn btn-sm btn-light border"
                                 t-on-click="() => this.zoomOut()" title="Alejar">−</button>
                             <small class="text-muted" style="min-width: 3.5em; text-align: center;"
@@ -96,7 +102,7 @@
                                 <t t-set="item" t-value="rosterPorExamenId[examenId] || {}"/>
 
                                 <!-- Borde de color = resultado. Si su panel está abierto en el
-                                     dock, estiloCardBox le agrega un outline primario. -->
+                                     dock, estiloCabecera resalta la cabecera (anillo + tinte). -->
                                 <div t-att-class="'rounded bg-white shadow-sm border border-2 ' +
                                         (item.resultado === 'aprobado' ? 'border-success' :
                                          item.resultado === 'reprobado' ? 'border-danger' :
@@ -107,8 +113,9 @@
                                          estiloCardBox), sin flex-wrap. El resultado lo indica solo
                                          el color del borde; Cerrar/Expandir/Quitar viven en la barra
                                          de su panel en el dock. -->
-                                    <div t-att-style="estiloCabecera(examenId) + ' height: 100%; overflow: hidden;'">
-                                        <div class="d-flex bg-light h-100" style="user-select: none;">
+                                    <div t-att-class="estaAbierta(examenId) ? '' : 'bg-light'"
+                                        t-att-style="estiloCabecera(examenId) + ' height: 100%; overflow: hidden;'">
+                                        <div class="d-flex h-100" style="user-select: none;">
                                             <div class="d-flex align-items-center justify-content-center px-2 text-muted border-end"
                                                 style="cursor: grab; touch-action: none;"
                                                 t-on-pointerdown="(ev) => this.alPresionarManija(ev, examenId)"
@@ -153,14 +160,26 @@
                         </div>
                     </div>
 
-                    <!-- Dock: un panel por tarjeta abierta, en el orden de
-                         tarjetasAbiertas, lado a lado y sin traslapes. Scroll
-                         horizontal propio; cada panel con su scroll vertical
-                         (estiloPanelDock). Vive en esta misma rama t-elif, así que
-                         al expandir se desmonta junto con la mesa. -->
+                    <!-- Divisor marco/dock: arrastrarlo cambia state.altoDock. -->
                     <div t-if="state.tarjetasAbiertas.length"
-                        class="d-flex mt-3 pb-2"
-                        style="flex-wrap: nowrap; align-items: flex-start; gap: 16px; overflow-x: auto;">
+                        class="d-flex align-items-center justify-content-center"
+                        t-att-style="estiloDivisor"
+                        t-on-pointerdown="(ev) => this.alPresionarDivisor(ev)"
+                        t-on-pointermove="(ev) => this.alMoverDivisor(ev)"
+                        t-on-pointerup="(ev) => this.alSoltarDivisor(ev)"
+                        t-on-pointercancel="(ev) => this.alSoltarDivisor(ev)"
+                        title="Arrastrar para cambiar el alto del panel">
+                        <div class="rounded bg-secondary" style="width: 48px; height: 4px; opacity: 0.5; pointer-events: none;"/>
+                    </div>
+
+                    <!-- Dock: un panel por tarjeta abierta, en el orden de
+                         tarjetasAbiertas, lado a lado y sin traslapes. Alto fijo en px
+                         (estiloDock); scroll horizontal propio y cada panel con su
+                         scroll vertical (estiloPanelDock). Vive en esta misma rama
+                         t-elif, así que al expandir se desmonta junto con la mesa. -->
+                    <div t-if="state.tarjetasAbiertas.length"
+                        class="d-flex"
+                        t-att-style="estiloDock">
                         <div t-foreach="state.tarjetasAbiertas" t-as="examenId" t-key="examenId"
                             class="bg-white border rounded"
                             t-att-style="estiloPanelDock">
@@ -181,7 +200,9 @@
                     </div>
                     </t>
 
-                    <div t-else="">
+                    <!-- Vista expandida: la columna ahora tiene alto fijo, así que
+                         esta vista hace scroll dentro de sí misma. -->
+                    <div t-else="" style="flex: 1 1 0; min-height: 0; overflow-y: auto;">
                         <button type="button" class="btn btn-secondary mb-3"
                             t-on-click="() => this.regresar()">← Regresar a la mesa</button>
                         <div class="border rounded">
