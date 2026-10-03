@@ -3,7 +3,14 @@
     <t t-name="mi_primer_modulo.TableroCalificacion">
         <div class="p-3" style="height: 100%; overflow-y: auto;">
             <div t-if="state.cargando">Cargando información del evento...</div>
-            <div t-else="" class="d-flex" style="align-items: flex-start; gap: 1rem;">
+            <!-- Sin id de evento (ver _eventoId): aviso en lugar de Roster y mesa. -->
+            <div t-elif="state.sinEvento" class="alert alert-warning mb-0" role="alert">
+                No se pudo identificar el evento. Regresa al formulario del evento y vuelve a abrir el tablero.
+            </div>
+            <!-- Fila Roster + mesa: llena el alto de la raíz (height:100%) y estira
+                 ambas columnas; cada una maneja su propio scroll, así la vista de
+                 mesa no necesita scroll de página. -->
+            <div t-else="" class="d-flex" style="align-items: stretch; gap: 1rem; height: 100%;">
 
                 <div t-if="state.rosterColapsado" class="flex-shrink-0">
                     <button type="button" class="btn btn-sm btn-light border"
@@ -12,7 +19,7 @@
                     </button>
                 </div>
 
-                <div t-else="" style="width: 320px; flex-shrink: 0;" class="border-end pe-3">
+                <div t-else="" style="width: 320px; flex-shrink: 0; max-height: 100%; overflow-y: auto;" class="border-end pe-3">
                     <div class="d-flex justify-content-between align-items-center mb-2">
                         <h4 class="mb-0">Roster</h4>
                         <button type="button" class="btn btn-sm btn-light border"
@@ -61,25 +68,32 @@
                                     t-esc="(state.progreso[item.examenId] || 0) + '/4'"/>
                             </div>
                             <button type="button" class="btn btn-sm btn-primary ms-2"
-                                t-att-disabled="state.mesa.includes(item.examenId)"
+                                t-att-disabled="state.mesa.includes(item.examenId) || mesaLlena"
                                 t-on-click="() => this.agregarAMesa(item.examenId)">+</button>
                         </div>
                     </div>
                 </div>
 
-                <div class="flex-grow-1" style="min-width: 0;">
-                    <h4>Mesa de calificación</h4>
+                <div class="flex-grow-1 d-flex flex-column" style="min-width: 0; min-height: 0;" t-ref="columnaMesa">
+                    <div class="d-flex align-items-center mb-2" style="gap: 0.75rem;">
+                        <h4 class="mb-0">Mesa de calificación</h4>
+                        <button t-if="state.mesa.length" type="button" class="btn btn-sm btn-outline-secondary"
+                            t-on-click="() => this.acomodar()"
+                            title="Borrar posiciones y acomodar en filas centradas">Acomodar</button>
+                    </div>
 
                     <div t-if="!state.mesa.length" class="text-muted">
                         Agrega alumnos del roster con el botón + para empezar a calificar.
                     </div>
 
-                    <div t-elif="state.expandido === null"
-                        class="border rounded position-relative"
-                        style="overflow: auto; max-height: calc(100vh - 220px);">
+                    <t t-elif="state.expandido === null">
+                    <!-- Marco: toma todo el alto que deja el dock (flex 1 1 0). -->
+                    <div class="border rounded position-relative" t-ref="marco"
+                        style="flex: 1 1 0; min-height: 0; overflow: auto;">
 
                         <div class="d-flex justify-content-end align-items-center border-bottom bg-light"
-                            style="position: sticky; top: 0; z-index: 40; gap: 6px; padding: 4px 8px;">
+                            style="position: sticky; top: 0; z-index: 40; gap: 6px; padding: 4px 8px;"
+                            t-ref="barraZoom">
                             <button type="button" class="btn btn-sm btn-light border"
                                 t-on-click="() => this.zoomOut()" title="Alejar">−</button>
                             <small class="text-muted" style="min-width: 3.5em; text-align: center;"
@@ -96,32 +110,26 @@
 
                                 <t t-set="item" t-value="rosterPorExamenId[examenId] || {}"/>
 
-                                <!-- Exclusividad total (Paso 1): si esta card está cubierta
-                                     (esCubierta, por solape real de footprint completo contra
-                                     CUALQUIER otra con mayor prioridad, abierta o cerrada), el
-                                     CONTENEDOR EXTERNO COMPLETO (cardBox, el que lleva el
-                                     borde de color) queda oculto con visibility:hidden - borde
-                                     incluido, nunca un layering parcial. NO es display:none: el
-                                     cuerpo abierto vive dentro de cardBox y su altura la mide un
-                                     ResizeObserver (ver setup()/_cuerpoRect); display:none lo
-                                     habría colapsado a 0 en cuanto se cubre, lo que le hacía
-                                     "dejar de solaparse", revelarse, remedirse y volver a
-                                     solaparse - parpadeo infinito (ver el comentario de
-                                     estiloCardBox en el JS). El tag es HERMANO de cardBox, no su
-                                     hijo, así se sigue viendo aunque el resto esté 100% oculto;
-                                     está anclado a SUS propias coordenadas (no a las de quien
-                                     la cubre), para poder traerla al frente o reposicionarla
-                                     sin revelarla. -->
+                                <!-- Borde de color = resultado. Si su panel está abierto en el
+                                     dock se resalta: cabecera gris con anillo oscuro (estiloCabecera),
+                                     icono de la manija oscuro (estiloManija) e insignia con su número
+                                     de orden. -->
                                 <div t-att-class="'rounded bg-white shadow-sm border border-2 ' +
                                         (item.resultado === 'aprobado' ? 'border-success' :
                                          item.resultado === 'reprobado' ? 'border-danger' :
                                          'border-secondary')"
                                     t-att-style="estiloCardBox(examenId)">
 
-                                    <div t-att-style="estiloCabecera(examenId)">
-                                        <div class="d-flex bg-light border-bottom" style="user-select: none;">
-                                            <div class="d-flex align-items-center justify-content-center px-2 text-muted border-end"
-                                                style="cursor: grab; touch-action: none;"
+                                    <!-- Tarjeta compacta: alto fijo (ALTO_TARJETA, impuesto por
+                                         estiloCardBox), sin flex-wrap. El resultado lo indica solo
+                                         el color del borde; Cerrar/Expandir/Quitar viven en la barra
+                                         de su panel en el dock. -->
+                                    <div t-att-class="estaAbierta(examenId) ? '' : 'bg-light'"
+                                        t-att-style="estiloCabecera(examenId) + ' height: 100%; overflow: hidden;'">
+                                        <div class="d-flex h-100" style="user-select: none;">
+                                            <div t-att-class="'d-flex align-items-center justify-content-center px-2 border-end ' +
+                                                    (estaAbierta(examenId) ? '' : 'text-muted')"
+                                                t-att-style="estiloManija(examenId)"
                                                 t-on-pointerdown="(ev) => this.alPresionarManija(ev, examenId)"
                                                 t-on-pointermove="(ev) => this.alMoverManija(ev)"
                                                 t-on-pointerup="(ev) => this.alSoltarManija(ev)"
@@ -130,79 +138,93 @@
                                                 <i class="fa fa-arrows"/>
                                             </div>
 
-                                            <div class="flex-grow-1 px-2 py-2"
-                                                style="cursor: pointer; min-width: 0;"
+                                            <div class="flex-grow-1 d-flex align-items-center px-2 position-relative"
+                                                style="cursor: pointer; min-width: 0; gap: 0.5rem;"
                                                 t-on-click="() => this.alternarTarjeta(examenId)">
-                                                <div class="d-flex align-items-center flex-wrap" style="gap: 0.5rem;">
-                                                    <i t-att-class="'fa text-muted ' + (estaAbierta(examenId) ? 'fa-chevron-down' : 'fa-chevron-right')"/>
-                                                    <img t-if="item.foto"
-                                                        t-att-src="'data:image/png;base64,' + item.foto"
-                                                        class="rounded-circle"
-                                                        style="width: 36px; height: 36px; object-fit: cover; flex-shrink: 0;"/>
-                                                    <div t-else=""
-                                                        class="rounded-circle bg-white d-flex align-items-center justify-content-center border"
-                                                        style="width: 36px; height: 36px; flex-shrink: 0;">
-                                                        <i class="fa fa-user text-muted"/>
-                                                    </div>
-                                                    <div class="flex-grow-1" style="min-width: 0;">
-                                                        <div>
-                                                            <strong t-esc="item.name || ('Examen ' + examenId)"/>
-                                                            <span t-if="item.mejorExamen" style="color:#ffc107;">★</span>
-                                                        </div>
-                                                        <small class="text-muted">
-                                                            <t t-esc="item.edad"/> años · <t t-esc="item.cintaEvaluadaLabel"/>
-                                                        </small>
-                                                    </div>
-                                                    <span t-att-class="'badge ' + (item.resultado === 'aprobado' ? 'text-bg-success' : item.resultado === 'reprobado' ? 'text-bg-danger' : 'text-bg-secondary')"
-                                                        t-esc="etiquetaResultado(item.resultado)"/>
-                                                    <small class="text-muted"
-                                                        t-esc="(state.progreso[examenId] || 0) + '/4'"/>
+                                                <img t-if="item.foto"
+                                                    t-att-src="'data:image/png;base64,' + item.foto"
+                                                    class="rounded-circle"
+                                                    style="width: 36px; height: 36px; object-fit: cover; flex-shrink: 0;"/>
+                                                <div t-else=""
+                                                    class="rounded-circle bg-white d-flex align-items-center justify-content-center border"
+                                                    style="width: 36px; height: 36px; flex-shrink: 0;">
+                                                    <i class="fa fa-user text-muted"/>
                                                 </div>
+                                                <!-- padding-right: deja libre la columna de las esquinas
+                                                     (★ y x/4) para que el texto trunque antes de pisarlas. -->
+                                                <div class="flex-grow-1" style="min-width: 0; padding-right: 1.5rem;">
+                                                    <strong class="d-block text-truncate"
+                                                        t-esc="item.name || ('Examen ' + examenId)"/>
+                                                    <small class="d-block text-truncate text-muted"
+                                                        t-esc="item.cintaEvaluadaLabel"/>
+                                                </div>
+                                                <span t-if="item.mejorExamen"
+                                                    class="position-absolute"
+                                                    style="top: 2px; right: 4px; color: #ffc107; font-size: 0.75rem; line-height: 1;">★</span>
+                                                <small class="position-absolute text-muted"
+                                                    style="bottom: 2px; right: 4px; font-size: 0.7rem; line-height: 1;"
+                                                    t-esc="(state.progreso[examenId] || 0) + '/4'"/>
+                                                <!-- Insignia de orden en el dock: esquina superior izquierda
+                                                     de la zona clicable (libre: ★ va arriba a la derecha y x/4
+                                                     abajo a la derecha); queda sobre el borde de la foto. -->
+                                                <span t-if="estaAbierta(examenId)"
+                                                    class="position-absolute rounded-circle d-flex align-items-center justify-content-center fw-bold"
+                                                    t-att-style="'top: 2px; left: 2px; ' + estiloInsignia"
+                                                    t-esc="numeroAbierta(examenId)"/>
                                             </div>
                                         </div>
-
-                                        <div class="d-flex flex-wrap p-2 bg-light border-bottom" style="gap: 0.5rem;">
-                                            <button type="button" class="btn btn-sm btn-outline-secondary"
-                                                t-on-click.stop="() => this.expandir(examenId)">Expandir</button>
-                                            <button type="button" class="btn btn-sm btn-outline-danger"
-                                                t-on-click.stop="() => this.quitarDeMesa(examenId)">Quitar</button>
-                                        </div>
                                     </div>
-
-                                    <div t-if="estaAbierta(examenId)" t-att-data-cuerpo-id="examenId"
-                                        t-att-style="estiloCuerpoAbierto(examenId)">
-                                        <PanelCalificacion t-key="examenId"
-                                            examenId="examenId"
-                                            onGuardado="(id) => this.onCriterioGuardado(id)"
-                                            onResultadoCambiado="(id, valor) => this.onResultadoCambiado(id, valor)"
-                                            onMejorExamenCambiado="(id, valor) => this.onMejorExamenCambiado(id, valor)"/>
-                                    </div>
-                                </div>
-
-                                <!-- Tag de traer al frente (Paso 2): tamaño fijo, sin texto -
-                                     el nombre completo va en el title (tooltip nativo). HERMANO
-                                     del cardBox de arriba (nunca su hijo, ver comentario
-                                     anterior). Posición elegida por estiloTag/_posicionTag,
-                                     evitando colisionar con CUALQUIER card visible o tag ya
-                                     colocado. Drag propio con Pointer Events: un click simple
-                                     (sin mover) trae la card al frente y la abre; arrastrarlo
-                                     reposiciona la card SIN revelarla (ver
-                                     alPresionarTag/alSoltarTag). -->
-                                <div t-if="esCubierta(examenId)"
-                                    class="d-flex align-items-center justify-content-center rounded bg-white border shadow-sm text-muted"
-                                    t-att-style="estiloTag(examenId)"
-                                    t-on-pointerdown="(ev) => this.alPresionarTag(ev, examenId)"
-                                    t-on-pointermove="(ev) => this.alMoverTag(ev)"
-                                    t-on-pointerup="(ev) => this.alSoltarTag(ev)"
-                                    t-on-pointercancel="(ev) => this.alSoltarTag(ev)"
-                                    t-att-title="item.name || ('Examen ' + examenId)">
-                                    <i class="fa fa-user"/>
                                 </div>
                             </div>
                         </div>
                     </div>
 
-                    <div t-else="">
+                    <!-- Divisor marco/dock: arrastrarlo cambia state.altoDock. -->
+                    <div t-if="state.tarjetasAbiertas.length"
+                        class="d-flex align-items-center justify-content-center"
+                        t-att-style="estiloDivisor"
+                        t-on-pointerdown="(ev) => this.alPresionarDivisor(ev)"
+                        t-on-pointermove="(ev) => this.alMoverDivisor(ev)"
+                        t-on-pointerup="(ev) => this.alSoltarDivisor(ev)"
+                        t-on-pointercancel="(ev) => this.alSoltarDivisor(ev)"
+                        title="Arrastrar para cambiar el alto del panel">
+                        <div class="rounded bg-secondary" style="width: 48px; height: 4px; opacity: 0.5; pointer-events: none;"/>
+                    </div>
+
+                    <!-- Dock: un panel por tarjeta abierta, en el orden de
+                         tarjetasAbiertas, lado a lado y sin traslapes. Alto fijo en px
+                         (estiloDock); scroll horizontal propio y cada panel con su
+                         scroll vertical (estiloPanelDock). Vive en esta misma rama
+                         t-elif, así que al expandir se desmonta junto con la mesa. -->
+                    <div t-if="state.tarjetasAbiertas.length"
+                        class="d-flex"
+                        t-att-style="estiloDock">
+                        <div t-foreach="state.tarjetasAbiertas" t-as="examenId" t-key="examenId"
+                            class="bg-white border rounded"
+                            t-att-style="estiloPanelDock">
+                            <div class="d-flex justify-content-end align-items-center p-2 border-bottom" t-att-style="estiloBarraDock">
+                                <span class="rounded-circle d-flex align-items-center justify-content-center fw-bold"
+                                    t-att-style="estiloInsignia"
+                                    t-esc="numeroAbierta(examenId)"/>
+                                <button type="button" class="btn btn-sm btn-outline-secondary"
+                                    t-on-click="() => this.alternarTarjeta(examenId)">Cerrar</button>
+                                <button type="button" class="btn btn-sm btn-outline-secondary"
+                                    t-on-click="() => this.expandir(examenId)">Expandir</button>
+                                <button type="button" class="btn btn-sm btn-outline-danger"
+                                    t-on-click="() => this.quitarDeMesa(examenId)">Quitar de la mesa</button>
+                            </div>
+                            <PanelCalificacion t-key="examenId"
+                                examenId="examenId"
+                                onGuardado="(id) => this.onCriterioGuardado(id)"
+                                onResultadoCambiado="(id, valor) => this.onResultadoCambiado(id, valor)"
+                                onMejorExamenCambiado="(id, valor) => this.onMejorExamenCambiado(id, valor)"/>
+                        </div>
+                    </div>
+                    </t>
+
+                    <!-- Vista expandida: la columna ahora tiene alto fijo, así que
+                         esta vista hace scroll dentro de sí misma. -->
+                    <div t-else="" style="flex: 1 1 0; min-height: 0; overflow-y: auto;">
                         <button type="button" class="btn btn-secondary mb-3"
                             t-on-click="() => this.regresar()">← Regresar a la mesa</button>
                         <div class="border rounded">
