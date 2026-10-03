@@ -1,4 +1,4 @@
-import { Component, onWillStart, onWillUnmount, useEffect, useRef, useState } from "@odoo/owl";
+import { Component, onPatched, onWillStart, useEffect, useRef, useState } from "@odoo/owl";
 import { registry } from "@web/core/registry";
 import { useService } from "@web/core/utils/hooks";
 import { standardActionServiceProps } from "@web/webclient/actions/action_service";
@@ -27,31 +27,79 @@ const RESULTADO_LABELS = {
 // arrastra las tarjetas para reproducir la distribución física real de los
 // alumnos durante el examen. Es una vista PERSONAL: no se sincroniza entre
 // distintos sinodales/dispositivos.
-const ANCHO_TARJETA = 360;
-// Alto de una tarjeta colapsada (header + fila de botones). Es el único alto
-// fijo que existe: una tarjeta ABIERTA ocupa el mismo espacio en el canvas
-// que una colapsada - su body es position:absolute y NUNCA cuenta para el
-// tamaño ni la posición de la card (ver estiloCuerpoAbierto).
-const ALTO_TARJETA = 140;
+// Ancho de la tarjeta COMPACTA (cerrada). Estimado, a validar en navegador.
+const ANCHO_TARJETA = 190;
+// Ancho de cada panel abierto en el dock (franja bajo la mesa),
+// independiente del de la tarjeta compacta.
+const ANCHO_PANEL = 360;
+// Alto FIJO de la tarjeta compacta (lo impone estiloCardBox). Abrir una
+// tarjeta no cambia su tamaño en el lienzo: su panel va al dock, fuera del
+// lienzo. Estimado, a validar en navegador.
+const ALTO_TARJETA = 64;
+// Reparto de alto entre el marco de la mesa y el dock: el marco toma lo
+// que sobra (flex) y el dock un alto en px (state.altoDock) que el sinodal
+// ajusta arrastrando el divisor. Ninguno de los dos baja de su mínimo.
+const ALTO_MIN_MARCO = 200;
+const ALTO_MIN_DOCK = 200;
+const ALTO_DIVISOR = 10;
+const FRACCION_INICIAL_DOCK = 0.6;  // la 1a vez que se abre el dock
+const ALTO_DOCK_RESPALDO = 300;     // si aún no se puede medir la columna
+// Margen que se deja alrededor de una tarjeta al llevar el scroll hacia ella.
+const MARGEN_SCROLL = 16;
+// ANCHO_LIENZO: ancho mínimo del lienzo mientras no se haya medido el marco
+// (y rejilla de _siguienteSlot). ALTO_LIENZO_RESPALDO: lo mismo para el
+// alto (700 + 80 de margen, el mínimo de antes).
 const ANCHO_LIENZO = 1400;
+const ALTO_LIENZO_RESPALDO = 780;
 const ANCHO_LIENZO_MAX = 4000;
 const ALTO_LIENZO_MAX = 3000;
 const SEPARACION = 16;
-const HOLGURA_ENCIMADO = 40;       // px de traslape tolerado antes de considerar "encimadas"
-const MARGEN_MINIMO = 2;           // separación mínima al buscar hueco libre para una card nueva
 const ZOOM_MIN = 0.5;
 const ZOOM_MAX = 1;
 const ZOOM_PASO = 0.1;
-// Tiers de z-index (independientes de la prioridad de cada card, que se
-// SUMA a cada uno - ver _prioridad): garantizan que un header siempre
-// pinte por encima de CUALQUIER body, y que el tag de "traer al frente"
-// siempre pinte por encima de CUALQUIER header, sin importar de qué card
-// sea cada uno.
+// Base de z-index de la cabecera de cada tarjeta; se le SUMA su prioridad
+// (ver _prioridad) para que la última tarjeta arrastrada o abierta quede
+// encima de otras cerradas con las que se encime.
 const Z_HEADER_BASE = 500;
-const Z_TAG_BASE = 1500;
-// Tamaño fijo del tag que sobresale al costado de una card cubierta.
-const ANCHO_TAG = 44;
-const ALTO_TAG = 40;
+// Tope de alumnos simultáneos en la mesa (deshabilita el "+" del Roster).
+const MAX_ALUMNOS_MESA = 20;
+// Tope de tarjetas por fila en el acomodo automático (ver calcularAcomodo).
+const MAX_POR_FILA = 5;
+// Indicador de tarjeta abierta: colores FIJOS (gris de Bootstrap), sin
+// depender de las variables del tema de Odoo.
+const COLOR_ABIERTA_FONDO = "#ced4da";
+const COLOR_ABIERTA_ACENTO = "#495057";
+
+// Acomodo automático de n tarjetas en filas centradas, como se sientan los
+// alumnos frente al sinodal: la fila 0 es la de adelante (arriba) y las
+// filas de atrás llevan las tarjetas sobrantes. anchoVisible va en
+// unidades del lienzo (sin escalar por zoom). Devuelve n posiciones {x, y}
+// en orden: fila 0 de izquierda a derecha, luego fila 1, etc. y nunca es 0
+// (margen SEPARACION arriba), así que (0,0) sigue siendo el centinela de
+// "sin posición". Función pura: exportada para poder probarla aparte.
+export function calcularAcomodo(n, anchoVisible) {
+    if (n <= 0) {
+        return [];
+    }
+    const maxPorFila = Math.max(1, Math.min(
+        MAX_POR_FILA,
+        Math.floor((anchoVisible + SEPARACION) / (ANCHO_TARJETA + SEPARACION))
+    ));
+    const filas = n <= Math.min(3, maxPorFila) ? 1 : Math.max(2, Math.ceil(n / maxPorFila));
+    const base = Math.floor(n / filas);
+    const extra = n % filas;
+    const posiciones = [];
+    for (let i = 0; i < filas; i++) {
+        const k = base + (i >= filas - extra ? 1 : 0);
+        const anchoFila = k * ANCHO_TARJETA + (k - 1) * SEPARACION;
+        const x0 = Math.max(0, Math.floor((anchoVisible - anchoFila) / 2));
+        const y = SEPARACION + i * (ALTO_TARJETA + SEPARACION);
+        for (let j = 0; j < k; j++) {
+            posiciones.push({ x: x0 + j * (ANCHO_TARJETA + SEPARACION), y });
+        }
+    }
+    return posiciones;
+}
 
 export class TableroCalificacion extends Component {
     static template = "mi_primer_modulo.TableroCalificacion";
@@ -64,6 +112,9 @@ export class TableroCalificacion extends Component {
         this.orm = useService("orm");
         this.notification = useService("notification");
         this.lienzoRef = useRef("lienzo");
+        this.marcoRef = useRef("marco");
+        this.barraZoomRef = useRef("barraZoom");
+        this.columnaRef = useRef("columnaMesa");
 
         this.state = useState({
             cargando: true,
@@ -73,44 +124,61 @@ export class TableroCalificacion extends Component {
             // 'mesa': exámenes en la mesa. 'posiciones': {examenId: {x, y}} en
             // px dentro del lienzo = posición CANÓNICA, la que persiste en
             // posicion_x/posicion_y y que SOLO cambia el drag-and-drop libre.
-            // 'tarjetasAbiertas': cuáles muestran el panel completo inline.
-            // 'alturasCuerpo': {examenId: px} alto REAL renderizado del body
-            // de cada card abierta (medido vía ResizeObserver, ya limitado
-            // por su propio max-height:70vh) - se usa para saber a quién
-            // cubre, ver _cuerpoRect.
+            // 'tarjetasAbiertas': cuáles muestran su panel en el dock, en
+            // ese orden (de izquierda a derecha).
             // 'zIndices': {examenId: numero} orden de "traída al frente";
-            // más alto = más arriba visualmente y gana los empates de
-            // cobertura cuando varias cards abiertas solapan a una misma.
+            // más alto = más arriba visualmente cuando dos tarjetas se enciman.
             // 'expandido': tarjeta a pantalla completa, o null.
             // 'zoom': factor de escala manual del tablero completo (0.5-1).
+            // 'altoDock': alto en px del dock, o null hasta la 1a apertura
+            // (ver alternarTarjeta). Solo vive en memoria.
+            // 'marcoVisible': {ancho, alto} en px de pantalla del área útil
+            // del marco (sin barras de scroll ni barra de zoom), medido por
+            // el ResizeObserver de abajo; null mientras no se ha medido.
             mesa: [],
             posiciones: {},
             tarjetasAbiertas: [],
-            alturasCuerpo: {},
             zIndices: {},
             expandido: null,
             zoom: ZOOM_MAX,
             progreso: {},
+            altoDock: null,
+            marcoVisible: null,
+            // 'modoAuto': true = la mesa se acomoda sola en filas centradas
+            // (calcularAcomodo) al agregar/quitar; false = posiciones libres
+            // del sinodal. Se decide al cargar y pasa a false con el primer
+            // arrastre; el botón "Acomodar" lo vuelve a true.
+            modoAuto: false,
+            // 'sinEvento': true si no se pudo identificar el evento (ver
+            // onWillStart): la plantilla muestra un aviso en lugar de la mesa.
+            sinEvento: false,
         });
 
         // Arrastre libre en curso. No es estado reactivo: solo vive entre
         // pointerdown y pointerup/pointercancel de un mismo gesto.
         this._arrastre = null;
-        // Arrastre del TAG de una card cubierta (independiente del de la
-        // manija): permite reposicionarla sin traerla al frente. Solo se
-        // trae al frente si el gesto termina SIN moverse (click simple),
-        // ver alSoltarTag.
-        this._arrastreTag = null;
-        // Contador monótono para "traer al frente" (abrir una card o tocar
-        // su tag le asigna el siguiente número; nunca baja).
+        // Contador monótono para "traer al frente" (abrir o arrastrar una
+        // card le asigna el siguiente número; nunca baja).
         this._zSiguiente = 10;
-        // ResizeObserver activo por cada card abierta, para medir su body
-        // real (ver el useEffect de abajo). Map, no state: no necesita ser
-        // reactivo, solo vive mientras el componente está montado.
-        this._observadores = new Map();
+        // Arrastre del divisor marco/dock en curso. No reactivo, igual que
+        // _arrastre: solo vive durante un gesto.
+        this._arrastreDivisor = null;
+        // examenId de la tarjeta recién abierta a la que hay que llevar el
+        // scroll del marco en cuanto termine el render (ver onPatched).
+        this._scrollPendiente = null;
+        // true mientras falte la colocación inicial de la mesa con la medida
+        // real del marco (acomodo en modo automático, o huecos para las
+        // tarjetas sin posición en modo manual - ver el useEffect de abajo).
+        // Se consume una sola vez.
+        this._acomodoInicialPendiente = false;
 
         onWillStart(async () => {
-            const eventoId = this.props.action.params.evento_id;
+            const eventoId = this._eventoId();
+            if (eventoId === null) {
+                this.state.sinEvento = true;
+                this.state.cargando = false;
+                return;
+            }
 
             const examenes = await this.orm.searchRead(
                 "taekwondo.examen",
@@ -195,50 +263,74 @@ export class TableroCalificacion extends Component {
             }
             this.state.mesa = mesa;
             this.state.posiciones = posiciones;
+            // Modo automático solo si NINGUNA tarjeta de la mesa tiene
+            // posición guardada (mismo criterio que arriba: distinta del
+            // centinela (0,0)). El acomodo en sí espera a la primera medida
+            // del marco (ver _acomodoInicialPendiente).
+            this.state.modoAuto = !mesa.some((id) => posiciones[id]);
+            this._acomodoInicialPendiente = true;
 
             this.state.cargando = false;
         });
 
-        // Mide el body REAL de cada card abierta (ya limitado por su propio
-        // max-height:70vh) para saber a quién cubre - ver _cuerpoRect. Se
-        // reengancha cada vez que cambia el conjunto de cards abiertas;
-        // dentro de eso, ResizeObserver reacciona a cambios de alto por
-        // contenido (ej. escribir un comentario largo) sin depender de
-        // otro render.
+        // Mide el área útil del marco para que el lienzo la llene como
+        // mínimo (ver anchoLienzo/altoLienzo). La dependencia es el propio
+        // elemento del marco: cuando la rama t-elif lo desmonta (Expandir)
+        // y lo vuelve a montar (Regresar) el elemento cambia, así que Owl
+        // corre la limpieza (disconnect) y vuelve a conectar sobre el nuevo.
+        // También se limpia al desmontar el componente.
         useEffect(
-            () => {
-                for (const examenId of this.state.tarjetasAbiertas) {
-                    if (this._observadores.has(examenId)) {
-                        continue;
-                    }
-                    const el = this.lienzoRef.el
-                        && this.lienzoRef.el.querySelector(`[data-cuerpo-id="${examenId}"]`);
-                    if (!el) {
-                        continue;
-                    }
-                    const observador = new ResizeObserver(() => {
-                        this.state.alturasCuerpo[examenId] = el.clientHeight;
-                    });
-                    observador.observe(el);
-                    this._observadores.set(examenId, observador);
-                    this.state.alturasCuerpo[examenId] = el.clientHeight;
+            (marco) => {
+                if (!marco) {
+                    return;
                 }
-                for (const [examenId, observador] of this._observadores) {
-                    if (!this.state.tarjetasAbiertas.includes(examenId)) {
-                        observador.disconnect();
-                        this._observadores.delete(examenId);
-                        delete this.state.alturasCuerpo[examenId];
+                const medir = () => {
+                    const barra = this.barraZoomRef.el;
+                    const ancho = marco.clientWidth;
+                    const alto = marco.clientHeight - (barra ? barra.offsetHeight : 0);
+                    const previo = this.state.marcoVisible;
+                    // Solo escribimos si cambió: evita renders de más.
+                    if (!previo || previo.ancho !== ancho || previo.alto !== alto) {
+                        this.state.marcoVisible = { ancho, alto };
+                    }
+                };
+                const observador = new ResizeObserver(medir);
+                observador.observe(marco);
+                medir();
+                return () => observador.disconnect();
+            },
+            () => [this.marcoRef.el]
+        );
+
+        // Colocación inicial en cuanto exista la primera medida del marco
+        // (state.marcoVisible), una sola vez. Modo automático: acomodo en
+        // filas. Modo manual: las tarjetas en mesa SIN posición guardada
+        // (que _pos dibujaría todas en 0,0) reciben un hueco libre, en el
+        // orden de la mesa; solo en memoria, sin writes. Las que ya tienen
+        // posición no se tocan.
+        useEffect(
+            (marcoVisible) => {
+                if (this._acomodoInicialPendiente && marcoVisible) {
+                    this._acomodoInicialPendiente = false;
+                    if (this.state.modoAuto) {
+                        this._acomodarTodo();
+                    } else {
+                        this._colocarSinPosicion();
                     }
                 }
             },
-            () => [this.state.tarjetasAbiertas.join(",")]
+            () => [this.state.marcoVisible]
         );
 
-        onWillUnmount(() => {
-            for (const observador of this._observadores.values()) {
-                observador.disconnect();
+        // Auto-scroll al abrir una tarjeta: corre DESPUÉS del patch, cuando
+        // el dock ya está en el DOM y el marco ya se encogió (leer
+        // clientHeight/scrollTop fuerza el layout actualizado).
+        onPatched(() => {
+            if (this._scrollPendiente !== null) {
+                const examenId = this._scrollPendiente;
+                this._scrollPendiente = null;
+                this._scrollHaciaTarjeta(examenId);
             }
-            this._observadores.clear();
         });
     }
 
@@ -276,22 +368,49 @@ export class TableroCalificacion extends Component {
         if (this.state.mesa.includes(examenId)) {
             return;
         }
-        // Si ya tenía posición (el sinodal lo había acomodado y luego lo
-        // quitó), se respeta y reaparece ahí. Solo si nunca tuvo posición
-        // se le asigna un hueco automático (para que no aparezca amontonada
-        // en 0,0 encima de otra card).
-        if (!this.state.posiciones[examenId]) {
-            this.state.posiciones[examenId] = this._siguienteSlot();
+        // Modo automático: se reacomoda TODA la mesa en memoria (ignorando
+        // la posición vieja que la tarjeta pudiera tener) y en el servidor se
+        // le BORRA esa posición vieja (0,0): si no, al recargar haría entrar
+        // la mesa en modo manual con las demás sin posición.
+        // Modo manual: si ya tenía posición (la había acomodado y luego la
+        // quitó) y ese lugar sigue libre, reaparece ahí; si no, hueco libre.
+        // Esa posición se persiste en el MISMO write que en_mesa, para que
+        // sobreviva a salir y volver.
+        const posicionPrevia = this.state.posiciones[examenId];
+        let valores;
+        if (this.state.modoAuto) {
+            valores = { en_mesa: true, posicion_x: 0, posicion_y: 0 };
+        } else {
+            const otras = this._rectsMesa([]);
+            const previa = posicionPrevia
+                && !otras.some((r) => this._chocan(this._rect(posicionPrevia, this._dimsTarjeta), r));
+            const pos = previa ? posicionPrevia : this._siguienteSlot();
+            // (0,0) es el centinela de "sin posición": se empuja 1px.
+            const nueva = pos.x === 0 && pos.y === 0 ? { x: 1, y: 0 } : { x: pos.x, y: pos.y };
+            this.state.posiciones[examenId] = nueva;
+            valores = { en_mesa: true, posicion_x: nueva.x, posicion_y: nueva.y };
         }
         this.state.mesa.push(examenId);
+        if (this.state.modoAuto) {
+            this._acomodarTodo();
+        }
         try {
-            await this.orm.write("taekwondo.examen", [examenId], { en_mesa: true });
+            await this.orm.write("taekwondo.examen", [examenId], valores);
         } catch (error) {
             // Reversión optimista: si no se pudo persistir, el alumno no
             // se queda "en la mesa" solo en el navegador de este sinodal -
             // eso volvería a divergir del servidor, el mismo tipo de bug
             // que estamos arreglando.
             this.state.mesa = this.state.mesa.filter((id) => id !== examenId);
+            if (this.state.modoAuto) {
+                // Deshace el hueco que se le había hecho a la tarjeta.
+                this._acomodarTodo();
+            } else if (posicionPrevia) {
+                // Revierte también la posición asignada en memoria.
+                this.state.posiciones[examenId] = posicionPrevia;
+            } else {
+                delete this.state.posiciones[examenId];
+            }
             this.notification.add(
                 "No se pudo agregar el alumno a la mesa. Intenta de nuevo.",
                 { type: "danger" }
@@ -302,9 +421,11 @@ export class TableroCalificacion extends Component {
     async quitarDeMesa(examenId) {
         // "Quitar" es PURAMENTE VISUAL: solo saca el examenId del arreglo
         // 'mesa' y persiste en_mesa=False. NO se borra 'state.posiciones'
-        // ni se toca posicion_x/posicion_y en el servidor, para que al
-        // volver a agregar al alumno con "+" reaparezca exactamente donde
-        // el sinodal lo dejó.
+        // ni se toca posicion_x/posicion_y en el servidor. Al volver a
+        // agregar al alumno con "+": en modo manual reaparece en ese mismo
+        // lugar si sigue libre, y si ya choca con otra tarjeta se recoloca
+        // en un hueco (ver agregarAMesa); en modo automático se reacomoda
+        // toda la mesa.
         this.state.mesa = this.state.mesa.filter((id) => id !== examenId);
         this.state.tarjetasAbiertas = this.state.tarjetasAbiertas.filter((id) => id !== examenId);
         if (this.state.expandido === examenId) {
@@ -312,6 +433,9 @@ export class TableroCalificacion extends Component {
         }
         try {
             await this.orm.write("taekwondo.examen", [examenId], { en_mesa: false });
+            if (this.state.modoAuto) {
+                this._acomodarTodo();
+            }
         } catch (error) {
             // Revertimos SOLO la pertenencia a la mesa: tarjetasAbiertas y
             // expandido no se restauran porque su estado no es lo que
@@ -325,6 +449,65 @@ export class TableroCalificacion extends Component {
         }
     }
 
+    // ---- acomodo automático ------------------------------------------
+
+    // true cuando la mesa llegó al tope: deshabilita el "+" del Roster.
+    get mesaLlena() {
+        return this.state.mesa.length >= MAX_ALUMNOS_MESA;
+    }
+
+    // Reacomoda TODA la mesa en filas centradas (calcularAcomodo), en el
+    // orden de entrada de state.mesa, sobre el ancho visible del marco en
+    // unidades del lienzo (o ANCHO_LIENZO si aún no se ha medido). SOLO
+    // escribe en memoria (state.posiciones): nunca al servidor.
+    _acomodarTodo() {
+        const anchoVisible = this._minimoLienzo("ancho", ANCHO_LIENZO);
+        const acomodo = calcularAcomodo(this.state.mesa.length, anchoVisible);
+        this.state.mesa.forEach((id, i) => {
+            this.state.posiciones[id] = acomodo[i];
+        });
+    }
+
+    // Botón "Acomodar": borra en el servidor las posiciones de TODOS los
+    // exámenes del evento (un solo write) y, si eso funcionó, vuelve al
+    // modo automático y reacomoda. Si falla no toca nada local. No cierra
+    // ni toca los paneles abiertos.
+    async acomodar() {
+        const ids = this.state.roster.map((item) => item.examenId);
+        try {
+            await this.orm.write("taekwondo.examen", ids, { posicion_x: 0, posicion_y: 0 });
+        } catch (error) {
+            console.error("No se pudieron borrar las posiciones de la mesa", error);
+            return;
+        }
+        for (const id of ids) {
+            delete this.state.posiciones[id];
+        }
+        this.state.modoAuto = true;
+        this._acomodarTodo();
+    }
+
+    // Primer arrastre en modo automático: la mesa pasa a modo manual y se
+    // persisten las posiciones actuales (las del acomodo, que solo vivían en
+    // memoria) de todas las demás tarjetas en mesa, para que al recargar
+    // aparezcan donde el sinodal las vio. La arrastrada la guarda
+    // alSoltarManija como siempre.
+    async _pasarAManual(examenIdArrastrado) {
+        this.state.modoAuto = false;
+        const otras = this.state.mesa.filter((id) => id !== examenIdArrastrado && this.state.posiciones[id]);
+        try {
+            await Promise.all(otras.map((id) => {
+                const p = this.state.posiciones[id];
+                return this.orm.write("taekwondo.examen", [id], {
+                    posicion_x: p.x === 0 && p.y === 0 ? 1 : p.x,
+                    posicion_y: p.y,
+                });
+            }));
+        } catch (error) {
+            console.error("No se pudieron guardar las posiciones de la mesa", error);
+        }
+    }
+
     estaAbierta(examenId) {
         return this.state.tarjetasAbiertas.includes(examenId);
     }
@@ -333,8 +516,14 @@ export class TableroCalificacion extends Component {
         if (this.state.tarjetasAbiertas.includes(examenId)) {
             this.state.tarjetasAbiertas = this.state.tarjetasAbiertas.filter((id) => id !== examenId);
         } else {
+            if (this.state.altoDock === null) {
+                this.state.altoDock = this._altoDockInicial();
+            }
             this.state.tarjetasAbiertas.push(examenId);
             this._traerAlFrente(examenId);
+            // Solo al abrir: el scroll se aplica en onPatched, con el marco
+            // ya encogido por el dock.
+            this._scrollPendiente = examenId;
         }
     }
 
@@ -353,22 +542,35 @@ export class TableroCalificacion extends Component {
     // ---- geometría del lienzo -----------------------------------------
 
     get altoLienzo() {
-        // Alto real de cada card SIEMPRE es ALTO_TARJETA (el body abierto es
-        // position:absolute y no cuenta aquí, ver estiloCuerpoAbierto): el
-        // lienzo crece solo según hasta dónde se arrastró alguna card.
-        let maxAbajo = 700;
+        // Alto real de cada card SIEMPRE es ALTO_TARJETA (su panel abierto
+        // va al dock, fuera del lienzo): el lienzo crece solo según hasta
+        // dónde se arrastró alguna card.
+        // Mínimo: el alto útil del marco en unidades del lienzo (÷ zoom).
+        let maxAbajo = this._minimoLienzo("alto", ALTO_LIENZO_RESPALDO);
         for (const id of this.state.mesa) {
-            maxAbajo = Math.max(maxAbajo, this._pos(id).y + ALTO_TARJETA);
+            maxAbajo = Math.max(maxAbajo, this._pos(id).y + ALTO_TARJETA + 80);
         }
-        return Math.min(maxAbajo + 80, ALTO_LIENZO_MAX);
+        return Math.min(maxAbajo, ALTO_LIENZO_MAX);
     }
 
     get anchoLienzo() {
-        let maxDerecha = ANCHO_LIENZO;
+        // Mínimo: el ancho útil del marco en unidades del lienzo (÷ zoom).
+        let maxDerecha = this._minimoLienzo("ancho", ANCHO_LIENZO);
         for (const id of this.state.mesa) {
             maxDerecha = Math.max(maxDerecha, this._pos(id).x + ANCHO_TARJETA + 80);
         }
         return Math.min(maxDerecha, ANCHO_LIENZO_MAX);
+    }
+
+    // Tamaño útil del marco ('ancho' o 'alto') pasado a unidades del lienzo,
+    // o 'respaldo' si aún no se ha medido. floor: nunca un px de más que
+    // genere barras de scroll por redondeo.
+    _minimoLienzo(eje, respaldo) {
+        const visible = this.state.marcoVisible;
+        if (!visible) {
+            return respaldo;
+        }
+        return Math.floor(visible[eje] / this.state.zoom);
     }
 
     // Estilo del canvas: tamaño dinámico (crece con las cards) + el zoom
@@ -378,78 +580,197 @@ export class TableroCalificacion extends Component {
             `transform: scale(${this.state.zoom}); transform-origin: top left;`;
     }
 
-    // Posición libre de cada card: x/y propios, ancho SIEMPRE fijo (abierta
-    // o colapsada, Paso 1). SIN z-index propio a propósito: si el wrapper
-    // tuviera un z-index numérico, se volvería un stacking context nuevo y
-    // atraparía dentro suyo al cardBox/tag, impidiéndoles competir en
-    // tiers globales (Z_HEADER_BASE/Z_TAG_BASE) contra los de las demás
-    // cards - ver estiloCardBox/estiloCabecera/estiloTag/estiloCuerpoAbierto.
+    // Posición libre de cada card: x/y propios y ancho fijo de tarjeta
+    // compacta. SIN z-index propio a propósito: si el wrapper tuviera un
+    // z-index numérico, se volvería un stacking context nuevo y atraparía
+    // dentro suyo a la cabecera, impidiéndole competir por z-index contra
+    // las de las demás cards - ver estiloCabecera.
     estiloTarjeta(examenId) {
         const p = this._pos(examenId);
         return `position: absolute; left: ${p.x}px; top: ${p.y}px; width: ${ANCHO_TARJETA}px;`;
     }
 
-    // Contenedor externo completo (el que lleva el borde de color
-    // aprobado/reprobado/pendiente): oculto TOTAL (Paso 1) cuando esta card
-    // está cubierta - a diferencia de antes, esto es lo único que decide la
-    // visibilidad; cabecera y body NO repiten la condición (ver
-    // estiloCabecera/estiloCuerpoAbierto) porque ocultar este contenedor ya
-    // oculta TODO lo que hay dentro, borde incluido.
-    //
-    // visibility:hidden y NO display:none a propósito: el cuerpo abierto
-    // (con data-cuerpo-id, medido por el ResizeObserver de setup()) vive
-    // DENTRO de este contenedor. display:none lo habría colapsado a
-    // clientHeight 0 en cuanto la card se cubre, y _cuerpoRect habría
-    // tratado ese 0 como "altura sin medir" (ver su chequeo) - encogiendo el
-    // footprint de vuelta a solo el header, lo que le hacía dejar de
-    // solaparse con la cubridora, revelándose de nuevo, remidiendo su alto
-    // real, volviendo a solaparse... parpadeo infinito por retroalimentación
-    // entre cobertura y medición. visibility:hidden esconde exactamente
-    // igual (nada del contenido ni el borde queda visible) pero conserva el
-    // tamaño en el layout, así el observer siempre mide la altura real.
+    // Contenedor externo (el que lleva el borde de color por resultado).
+    // height = ALTO_TARJETA (border-box, borde incluido): fija el alto de la
+    // tarjeta compacta para que coincida con _headerRect.
     estiloCardBox(examenId) {
-        return this.esCubierta(examenId) ? "position: relative; visibility: hidden;" : "position: relative;";
+        return `position: relative; height: ${ALTO_TARJETA}px;`;
     }
 
-    // Cabecera (header + fila de botones Expandir/Quitar): tier de z-index
-    // propio, siempre por encima de CUALQUIER body sin importar de quién
-    // (Z_HEADER_BASE + prioridad). position:relative para que el z-index
-    // numérico aplique. Su visibilidad ya la decide estiloCardBox (el
-    // padre) - no repite la condición de cubierta.
+    // Cabecera de la tarjeta compacta: Z_HEADER_BASE + prioridad, para que
+    // la última card arrastrada o abierta pinte encima de otras cerradas con
+    // las que se encime. position:relative para que el z-index aplique.
+    // Si su panel está abierto en el dock, la cabecera entera pasa a fondo
+    // gris (COLOR_ABIERTA_FONDO) con un anillo interior oscuro
+    // (COLOR_ABIERTA_ACENTO): queda DENTRO del borde de color por resultado,
+    // sin taparlo. Cerrada usa la clase bg-light (ver plantilla), que lleva
+    // !important, por eso la plantilla solo la pone cuando está cerrada.
     estiloCabecera(examenId) {
         const prioridad = this._prioridad(examenId);
-        return `position: relative; z-index: ${Z_HEADER_BASE + prioridad};`;
+        const base = `position: relative; z-index: ${Z_HEADER_BASE + prioridad};`;
+        return this.estaAbierta(examenId)
+            ? `${base} background-color: ${COLOR_ABIERTA_FONDO}; ` +
+                `box-shadow: inset 0 0 0 3px ${COLOR_ABIERTA_ACENTO};`
+            : base;
     }
 
-    // Tag de "traer al frente" (Paso 2): ANCLADO a las coordenadas reales
-    // de ESTA MISMA card (no a la de quien la cubre), a la altura de su
-    // propio header (oculto). HERMANO del cardBox que se oculta (nunca su
-    // hijo) - así se sigue renderizando aunque el resto de la card esté
-    // 100% display:none. Posición elegida por _posicionTag, que evita
-    // colisionar con CUALQUIER card visible o tag ya colocado (no solo
-    // contra el límite del lienzo). Tier de z-index propio por encima de
-    // TODOS los headers (Z_TAG_BASE), así nunca queda enterrado por un
-    // body que lo solape lateralmente.
-    estiloTag(examenId) {
-        const prioridad = this._prioridad(examenId);
+    // Franja de la manija: sin fondo propio (toma el de la cabecera); si la
+    // tarjeta está abierta, el icono pasa a COLOR_ABIERTA_ACENTO (cerrada
+    // conserva la clase text-muted, ver plantilla).
+    estiloManija(examenId) {
+        const base = "cursor: grab; touch-action: none;";
+        return this.estaAbierta(examenId) ? `${base} color: ${COLOR_ABIERTA_ACENTO};` : base;
+    }
+
+    // Barra de cada panel del dock: mismo gris que la cabecera de la
+    // tarjeta abierta, con borde superior oscuro.
+    get estiloBarraDock() {
+        return `gap: 0.5rem; background-color: ${COLOR_ABIERTA_FONDO}; ` +
+            `border-top: 3px solid ${COLOR_ABIERTA_ACENTO};`;
+    }
+
+    // Número de orden de una tarjeta abierta en el dock (1 = la de más a la
+    // izquierda). Se muestra en la tarjeta y en la barra de su panel.
+    numeroAbierta(examenId) {
+        return this.state.tarjetasAbiertas.indexOf(examenId) + 1;
+    }
+
+    // Insignia circular del número de orden (~18px), igual en la tarjeta y
+    // en el dock; la de la tarjeta además va en posición absoluta.
+    get estiloInsignia() {
+        return "width: 18px; height: 18px; flex-shrink: 0; font-size: 0.65rem; line-height: 1; " +
+            `background-color: ${COLOR_ABIERTA_ACENTO}; color: #fff;`;
+    }
+
+    // ---- dock de paneles abiertos -------------------------------------
+
+    // Dock: alto en px elegido con el divisor; no crece ni se encoge con
+    // flex (el marco es quien absorbe el resto de la columna).
+    get estiloDock() {
+        return `height: ${this.state.altoDock || ALTO_DOCK_RESPALDO}px; flex: 0 0 auto; ` +
+            `flex-wrap: nowrap; align-items: stretch; gap: 16px; overflow-x: auto;`;
+    }
+
+    get estiloDivisor() {
+        return `height: ${ALTO_DIVISOR}px; flex: 0 0 auto; cursor: row-resize; touch-action: none;`;
+    }
+
+    // Cada panel del dock: ancho fijo (no se encoge al haber varios; el dock
+    // hace scroll horizontal), alto = el del dock (align-items: stretch) y
+    // scroll vertical propio.
+    get estiloPanelDock() {
+        return `width: ${ANCHO_PANEL}px; flex-shrink: 0; overflow-y: auto;`;
+    }
+
+    // Alto disponible para marco + dock: desde el borde superior del marco
+    // hasta el fondo de la columna, menos el divisor. null si no se puede
+    // medir (marco o columna no montados).
+    _altoDisponible() {
+        const marco = this.marcoRef.el;
+        const columna = this.columnaRef.el;
+        if (!marco || !columna) {
+            return null;
+        }
+        return columna.getBoundingClientRect().bottom - marco.getBoundingClientRect().top - ALTO_DIVISOR;
+    }
+
+    _limitarAltoDock(alto, disponible) {
+        return Math.max(ALTO_MIN_DOCK, Math.min(alto, disponible - ALTO_MIN_MARCO));
+    }
+
+    _altoDockInicial() {
+        const disponible = this._altoDisponible();
+        if (disponible === null) {
+            return ALTO_DOCK_RESPALDO;
+        }
+        return Math.round(this._limitarAltoDock(disponible * FRACCION_INICIAL_DOCK, disponible));
+    }
+
+    // ---- divisor marco/dock (Pointer Events, mismo patrón que la manija) --
+    //
+    // Arrastrar hacia ARRIBA agranda el dock; hacia abajo lo achica. Sin
+    // zoom ni _limitar (el divisor está fuera del lienzo) y sin escribir al
+    // servidor: el alto solo vive en memoria.
+
+    alPresionarDivisor(ev) {
+        const disponible = this._altoDisponible();
+        if (disponible === null) {
+            return;
+        }
+        ev.preventDefault();
+        ev.target.setPointerCapture(ev.pointerId);
+        this._arrastreDivisor = {
+            pointerId: ev.pointerId,
+            yInicial: ev.clientY,
+            altoInicial: this.state.altoDock || ALTO_DOCK_RESPALDO,
+            disponible,
+        };
+    }
+
+    alMoverDivisor(ev) {
+        const a = this._arrastreDivisor;
+        if (!a || ev.pointerId !== a.pointerId) {
+            return;
+        }
+        ev.preventDefault();
+        const alto = a.altoInicial + (a.yInicial - ev.clientY);
+        this.state.altoDock = Math.round(this._limitarAltoDock(alto, a.disponible));
+    }
+
+    alSoltarDivisor(ev) {
+        const a = this._arrastreDivisor;
+        if (!a || ev.pointerId !== a.pointerId) {
+            return;
+        }
+        if (ev.target.hasPointerCapture(ev.pointerId)) {
+            ev.target.releasePointerCapture(ev.pointerId);
+        }
+        this._arrastreDivisor = null;
+    }
+
+    // ---- auto-scroll hacia una tarjeta ----------------------------------
+
+    // Scroll MÍNIMO del marco (nunca de la página) para que la tarjeta quede
+    // completa a la vista, con MARGEN_SCROLL alrededor. Si ya se ve entera,
+    // no hace nada. Coordenadas en px del contenido scrolleable del marco:
+    // el lienzo está escalado desde su esquina superior izquierda, así que
+    // la tarjeta va en (x·zoom, y·zoom) a partir del origen del lienzo, y la
+    // barra de zoom sticky tapa la franja superior del área visible.
+    _scrollHaciaTarjeta(examenId) {
+        const marco = this.marcoRef.el;
+        const lienzo = this.lienzoRef.el;
+        if (!marco || !lienzo) {
+            return;
+        }
+        const zoom = this.state.zoom;
         const p = this._pos(examenId);
-        const pos = this._posicionTag(examenId);
-        return `position: absolute; left: ${pos.x - p.x}px; top: ${pos.y - p.y}px; ` +
-            `width: ${ANCHO_TAG}px; height: ${ALTO_TAG}px; z-index: ${Z_TAG_BASE + prioridad}; ` +
-            `cursor: grab; touch-action: none;`;
-    }
+        const izq = lienzo.offsetLeft + p.x * zoom;
+        const arriba = lienzo.offsetTop + p.y * zoom;
+        const der = izq + ANCHO_TARJETA * zoom;
+        const abajo = arriba + ALTO_TARJETA * zoom;
 
-    // Body de la card abierta: se extiende hacia ABAJO por fuera del alto
-    // fijo de su propia card (position:absolute), sin afectar su tamaño ni
-    // posición en el lienzo. Scroll interno intacto. Su z-index es la
-    // prioridad "cruda" (sin tier): siempre por debajo de CUALQUIER
-    // cabecera (mínimo Z_HEADER_BASE), y entre bodies se ordenan por
-    // recencia igual que antes. Su visibilidad ya la decide estiloCardBox
-    // (el padre) - no repite la condición de cubierta.
-    estiloCuerpoAbierto(examenId) {
-        const prioridad = this._prioridad(examenId);
-        return `position: absolute; top: 100%; left: 0; width: ${ANCHO_TARJETA}px; ` +
-            `max-height: 70vh; overflow-y: auto; z-index: ${prioridad};`;
+        const barra = this.barraZoomRef.el;
+        const altoBarra = barra ? barra.offsetHeight : 0;
+        const vistaIzq = marco.scrollLeft;
+        const vistaDer = vistaIzq + marco.clientWidth;
+        const vistaArriba = marco.scrollTop + altoBarra;
+        const vistaAbajo = marco.scrollTop + marco.clientHeight;
+
+        let left = marco.scrollLeft;
+        if (izq < vistaIzq) {
+            left = izq - MARGEN_SCROLL;
+        } else if (der > vistaDer) {
+            left = der + MARGEN_SCROLL - marco.clientWidth;
+        }
+        let top = marco.scrollTop;
+        if (arriba < vistaArriba) {
+            top = arriba - MARGEN_SCROLL - altoBarra;
+        } else if (abajo > vistaAbajo) {
+            top = abajo + MARGEN_SCROLL - marco.clientHeight;
+        }
+        if (left !== marco.scrollLeft || top !== marco.scrollTop) {
+            marco.scrollTo({ left: Math.max(0, left), top: Math.max(0, top) });
+        }
     }
 
     // ---- geometría / colisión (rectángulos) -----------------------------
@@ -462,24 +783,26 @@ export class TableroCalificacion extends Component {
         return { x: pos.x, y: pos.y, w: dims.w, h: dims.h };
     }
 
-    _solapeEje(a0, a1, b0, b1) {
-        return Math.min(a1, b1) - Math.max(a0, b0);
+    get _dimsTarjeta() {
+        return { w: ANCHO_TARJETA, h: ALTO_TARJETA };
     }
 
-    // Dos rectángulos "chocan" si se traslapan en AMBOS ejes por más de
-    // HOLGURA_ENCIMADO px. Cada rectángulo se infla MARGEN_MINIMO px por
-    // lado antes de comparar (ver _siguienteSlot).
-    _seSolapan(a, b) {
-        return (
-            this._solapeEje(
-                a.x - MARGEN_MINIMO, a.x + a.w + MARGEN_MINIMO,
-                b.x - MARGEN_MINIMO, b.x + b.w + MARGEN_MINIMO
-            ) > HOLGURA_ENCIMADO &&
-            this._solapeEje(
-                a.y - MARGEN_MINIMO, a.y + a.h + MARGEN_MINIMO,
-                b.y - MARGEN_MINIMO, b.y + b.h + MARGEN_MINIMO
-            ) > HOLGURA_ENCIMADO
-        );
+    // Choque ESTRICTO: inflando cada rectángulo SEPARACION/2 px por lado,
+    // se intersectan con área mayor que 0. Es decir, dos tarjetas que no
+    // chocan quedan con al menos SEPARACION px de aire entre ellas.
+    _chocan(a, b) {
+        const m = SEPARACION / 2;
+        const solapeX = Math.min(a.x + a.w + m, b.x + b.w + m) - Math.max(a.x - m, b.x - m);
+        const solapeY = Math.min(a.y + a.h + m, b.y + b.h + m) - Math.max(a.y - m, b.y - m);
+        return solapeX > 0 && solapeY > 0;
+    }
+
+    // Rectángulos de TODAS las tarjetas de la mesa (las que no tienen
+    // posición, en 0,0, como las dibuja _pos), salvo los ids en 'ignorar'.
+    _rectsMesa(ignorar) {
+        return this.state.mesa
+            .filter((id) => !ignorar.includes(id))
+            .map((id) => this._headerRect(id));
     }
 
     _limitar(x, y) {
@@ -488,23 +811,25 @@ export class TableroCalificacion extends Component {
         return [Math.max(0, Math.min(x, maxX)), Math.max(0, Math.min(y, maxY))];
     }
 
-    // Hueco libre para una card NUEVA (nunca antes posicionada): recorre una
-    // rejilla virtual de ANCHO_TARJETA+SEPARACION y devuelve la primera
-    // celda que no choque con ninguna card ya colocada. Solo se usa al
-    // agregar por primera vez (agregarAMesa) - nunca reposiciona una card
-    // que ya tiene posición guardada.
-    _siguienteSlot() {
-        const colocadas = this.state.mesa
-            .filter((id) => this.state.posiciones[id])
-            .map((id) => this._headerRect(id));
-        const dims = { w: ANCHO_TARJETA, h: ALTO_TARJETA };
-        const cols = Math.max(1, Math.floor(ANCHO_LIENZO / (ANCHO_TARJETA + SEPARACION)));
+    // Hueco libre para una card en modo manual: recorre una rejilla de
+    // paso ANCHO_TARJETA+SEPARACION por ALTO_TARJETA+SEPARACION, con tantas
+    // columnas como quepan en el ancho visible del marco (mismo cálculo y
+    // respaldo que _acomodarTodo, tope MAX_POR_FILA), y devuelve la primera
+    // celda que no choque (criterio estricto, _chocan) con NINGUNA tarjeta
+    // de la mesa, salvo las de 'ignorar' (ver _colocarSinPosicion).
+    _siguienteSlot(ignorar = []) {
+        const colocadas = this._rectsMesa(ignorar);
+        const anchoVisible = this._minimoLienzo("ancho", ANCHO_LIENZO);
+        const cols = Math.max(1, Math.min(
+            MAX_POR_FILA,
+            Math.floor((anchoVisible + SEPARACION) / (ANCHO_TARJETA + SEPARACION))
+        ));
         for (let fila = 0; fila < 60; fila++) {
             for (let col = 0; col < cols; col++) {
                 const x = col * (ANCHO_TARJETA + SEPARACION);
                 const y = fila * (ALTO_TARJETA + SEPARACION);
-                const rect = this._rect({ x, y }, dims);
-                if (!colocadas.some((r) => this._seSolapan(rect, r))) {
+                const rect = this._rect({ x, y }, this._dimsTarjeta);
+                if (!colocadas.some((r) => this._chocan(rect, r))) {
                     return { x, y };
                 }
             }
@@ -512,168 +837,61 @@ export class TableroCalificacion extends Component {
         return { x: 0, y: 0 };
     }
 
-    // ---- cobertura por solape real (no por columna) ---------------------
+    // Carga en modo manual: da un hueco (solo en memoria) a cada tarjeta de
+    // la mesa SIN posición guardada, en el orden de la mesa. Las aún no
+    // colocadas se ignoran como obstáculo (si no, todas estorbarían en 0,0);
+    // las recién colocadas sí cuentan, porque ya tienen posición.
+    _colocarSinPosicion() {
+        const pendientes = this.state.mesa.filter((id) => !this.state.posiciones[id]);
+        while (pendientes.length) {
+            const id = pendientes[0];
+            this.state.posiciones[id] = this._siguienteSlot(pendientes);
+            pendientes.shift();
+        }
+    }
 
-    // Rectángulo de la card tal como se ve colapsada/normal (header + fila
-    // de botones): SIEMPRE del mismo tamaño, esté abierta o no.
+    // Id del evento: params.evento_id al abrir desde el botón del evento;
+    // tras un F5 Odoo reconstruye la acción desde la URL y ese param se
+    // pierde, pero el id sigue llegando como active_id (contexto o params).
+    // Normalizado a número entero positivo; null si no hay ninguno válido.
+    _eventoId() {
+        const action = this.props.action || {};
+        const candidatos = [
+            action.params && action.params.evento_id,
+            action.context && action.context.active_id,
+            action.params && action.params.active_id,
+        ];
+        for (const valor of candidatos) {
+            const id = typeof valor === "string" ? parseInt(valor, 10) : valor;
+            if (Number.isInteger(id) && id > 0) {
+                return id;
+            }
+        }
+        return null;
+    }
+
+    // ---- rectángulo de la tarjeta compacta ------------------------------
+
+    // Rectángulo de la card en el lienzo: SIEMPRE del tamaño de la tarjeta
+    // compacta, esté abierta o no (su panel va al dock). Lo usa _siguienteSlot.
     _headerRect(examenId) {
         return this._rect(this._pos(examenId), { w: ANCHO_TARJETA, h: ALTO_TARJETA });
     }
 
-    // Rectángulo real del body de una card ABIERTA (null si aún no se ha
-    // medido su alto real - ver el useEffect de setup(), o si no está
-    // abierta). Empieza justo debajo de su propia card (y + ALTO_TARJETA).
-    _cuerpoRect(examenId) {
-        const alto = this.state.alturasCuerpo[examenId];
-        // === undefined (nunca medido), no !alto: un alto de 0 medido de
-        // verdad debe contar como "sin cuerpo", no confundirse con "no
-        // medido todavía" - ver el comentario de estiloCardBox sobre por
-        // qué ya no debería poder llegar un 0 espurio aquí, pero más vale
-        // no depender de que 0 sea falsy para la corrección de este cálculo.
-        if (alto === undefined) {
-            return null;
-        }
-        const p = this._pos(examenId);
-        return { x: p.x, y: p.y + ALTO_TARJETA, w: ANCHO_TARJETA, h: alto };
-    }
-
-    // Los 1-2 rectángulos que ocupa REALMENTE esta card en el lienzo: su
-    // header siempre, y también su body si está abierta y ya se midió su
-    // alto real (ver _cuerpoRect). El "footprint" completo es la unión de
-    // ambos, no solo el header - así una card abierta cuenta también su
-    // body al decidir si cubre o es cubierta.
-    _footprint(examenId) {
-        const rects = [this._headerRect(examenId)];
-        const cuerpo = this._cuerpoRect(examenId);
-        if (cuerpo) {
-            rects.push(cuerpo);
-        }
-        return rects;
-    }
-
-    // Prioridad real de una card para decidir "quién gana" (queda visible)
-    // en un solape: el contador de _traerAlFrente si alguna vez se tocó
-    // (abrir, arrastrar, click en su tag), o si nunca se tocó, -examenId
-    // como desempate ESTABLE y siempre único. -examenId garantiza dos
-    // cosas: (1) nunca coincide entre dos cards distintas (los examenId
-    // son únicos), así que dos cards NUNCA tocadas que se solapen siguen
-    // teniendo un ganador determinista - nunca ambas visibles a la vez
-    // (Paso 1); y (2) siempre queda por debajo de cualquier prioridad real
-    // asignada por _traerAlFrente (arranca en 11, siempre positiva), así
-    // que una card nunca tocada jamás le "gana" a una que sí fue traída al
-    // frente.
+    // Prioridad de una card para el orden de encimado (z-index de su
+    // cabecera, ver estiloCabecera): el contador de _traerAlFrente si alguna
+    // vez se abrió o arrastró, o si nunca se tocó, -examenId como desempate
+    // ESTABLE y siempre único, que queda por debajo de cualquier prioridad
+    // asignada por _traerAlFrente (arranca en 11, siempre positiva).
     _prioridad(examenId) {
         return this.state.zIndices[examenId] !== undefined
             ? this.state.zIndices[examenId]
             : -examenId;
     }
 
-    // Una card está "cubierta" (oculta por completo, Paso 1) si el
-    // footprint completo de ALGUNA otra con mayor prioridad solapa el
-    // suyo - sin importar si esa otra está abierta o cerrada: dos headers
-    // cerrados casi en el mismo punto también cuentan (evita el caso de un
-    // header reducido a un borde de 1px, inútil para hacer clic). No hace
-    // falta excluir aparte a "la card al frente": por definición nadie
-    // tiene prioridad mayor que ella, así que nunca se oculta a sí misma.
-    esCubierta(examenId) {
-        const prioridadPropia = this._prioridad(examenId);
-        const propio = this._footprint(examenId);
-        for (const id of this.state.mesa) {
-            if (id === examenId) {
-                continue;
-            }
-            if (this._prioridad(id) <= prioridadPropia) {
-                continue;
-            }
-            const otro = this._footprint(id);
-            if (propio.some((r1) => otro.some((r2) => this._seSolapan(r1, r2)))) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    // Rectángulo real del tag YA COLOCADO de una card cubierta (recursivo
-    // vía _posicionTag) - se usa como obstáculo para las cards que se
-    // colocan DESPUÉS que ella en 'mesa' (ver _obstaculosTag). Nunca hay
-    // ciclos: cada _posicionTag solo mira obstáculos de ids que vienen
-    // ANTES que él en 'mesa'.
-    _rectTag(examenId) {
-        const pos = this._posicionTag(examenId);
-        return { x: pos.x, y: pos.y, w: ANCHO_TAG, h: ALTO_TAG };
-    }
-
-    // Todo lo que el tag de esta card debe evitar (Paso 2): el footprint
-    // de CUALQUIER OTRA card actualmente VISIBLE (abierta o cerrada, no
-    // solo "abiertas" en sentido estricto - una card cerrada visible
-    // también ocupa espacio real en el lienzo), y el tag YA COLOCADO de
-    // cualquier otra card cubierta que venga ANTES en 'mesa' en este
-    // mismo render. Antes esto solo se comparaba contra el límite del
-    // lienzo (_ladoTag) o contra una única card en la misma posición
-    // exacta (_indiceApilado) - nunca contra el conjunto real de lo que
-    // hay dibujado, que es justo lo que dejaba el tag "flotando" sobre
-    // alguna de las cubridoras.
-    _obstaculosTag(examenId) {
-        const rects = [];
-        const indiceExamen = this.state.mesa.indexOf(examenId);
-        for (const id of this.state.mesa) {
-            if (id === examenId) {
-                continue;
-            }
-            if (!this.esCubierta(id)) {
-                rects.push(...this._footprint(id));
-            } else if (this.state.mesa.indexOf(id) < indiceExamen) {
-                rects.push(this._rectTag(id));
-            }
-        }
-        return rects;
-    }
-
-    // Desde 'base', prueba hasta 'intentosMax' posiciones desplazándose
-    // (dx,dy) por cada intento, y devuelve la primera que no choque con
-    // ningún obstáculo - o null si ninguna cupo en esos intentos.
-    _intentarSlot(base, dx, dy, obstaculos, intentosMax) {
-        for (let i = 0; i < intentosMax; i++) {
-            const candidato = { x: base.x + dx * i, y: base.y + dy * i, w: base.w, h: base.h };
-            if (!obstaculos.some((o) => this._seSolapan(candidato, o))) {
-                return candidato;
-            }
-        }
-        return null;
-    }
-
-    // Posición real (canvas, no relativa al wrapper) del tag de esta
-    // card (Paso 2): prueba derecha, luego izquierda, luego debajo de su
-    // propia card - en cada lado, si el primer punto choca con algún
-    // obstáculo (_obstaculosTag), se apila (hacia abajo en los costados,
-    // hacia el lado en "debajo") hasta encontrar hueco libre. Si un lado
-    // no cabe dentro del lienzo se salta directo al siguiente.
-    _posicionTag(examenId) {
-        const p = this._pos(examenId);
-        const obstaculos = this._obstaculosTag(examenId);
-        const alturaHeader = p.y + (ALTO_TARJETA - ALTO_TAG) / 2;
-
-        if (p.x + ANCHO_TARJETA + ANCHO_TAG <= this.anchoLienzo) {
-            const base = { x: p.x + ANCHO_TARJETA + 4, y: alturaHeader, w: ANCHO_TAG, h: ALTO_TAG };
-            const slot = this._intentarSlot(base, 0, ALTO_TAG + 4, obstaculos, 12);
-            if (slot) {
-                return slot;
-            }
-        }
-        if (p.x - ANCHO_TAG - 4 >= 0) {
-            const base = { x: p.x - ANCHO_TAG - 4, y: alturaHeader, w: ANCHO_TAG, h: ALTO_TAG };
-            const slot = this._intentarSlot(base, 0, ALTO_TAG + 4, obstaculos, 12);
-            if (slot) {
-                return slot;
-            }
-        }
-        const base = { x: p.x, y: p.y + ALTO_TARJETA + 4, w: ANCHO_TAG, h: ALTO_TAG };
-        return this._intentarSlot(base, ANCHO_TAG + 4, 0, obstaculos, 12) || base;
-    }
-
-    // Contador monótono de "traída al frente": ganar en cobertura y pintar
-    // por encima de las demás. Nunca baja, así que "la última tocada" queda
-    // siempre arriba de lo que ya estaba.
+    // Contador monótono de "traída al frente": pintar por encima de las
+    // demás cards. Nunca baja, así que "la última tocada" queda siempre
+    // arriba de lo que ya estaba.
     _traerAlFrente(examenId) {
         this._zSiguiente += 1;
         this.state.zIndices[examenId] = this._zSiguiente;
@@ -754,84 +972,13 @@ export class TableroCalificacion extends Component {
         if (!a.movido) {
             return;
         }
+        if (this.state.modoAuto) {
+            // Sin await: se lanza en paralelo al write de la arrastrada.
+            this._pasarAManual(a.examenId);
+        }
         const p = this.state.posiciones[a.examenId];
         // (0,0) es el centinela de "sin posición": si la tarjeta acabó justo
         // ahí, la empujamos 1px para que sí se persista.
-        const x = p.x === 0 && p.y === 0 ? 1 : p.x;
-        await this.orm.write("taekwondo.examen", [a.examenId], {
-            posicion_x: x,
-            posicion_y: p.y,
-        });
-    }
-
-    // ---- tag de una card cubierta (Paso 2) ------------------------------
-    //
-    // Mismo patrón de Pointer Events que la manija, pero con una diferencia
-    // clave: NO trae al frente en el pointerdown (a diferencia de la
-    // manija). Eso permite distinguir, al soltar, un click simple (sin
-    // moverse: trae al frente y abre) de un arrastre real (mueve la card
-    // SIN revelarla - sigue cubierta si corresponde, ver Paso 2 punto 4).
-
-    alPresionarTag(ev, examenId) {
-        const lienzo = this.lienzoRef.el;
-        if (!lienzo) {
-            return;
-        }
-        ev.preventDefault();
-        ev.target.setPointerCapture(ev.pointerId);
-        const rect = lienzo.getBoundingClientRect();
-        const p = this._pos(examenId);
-        const canvasX = (ev.clientX - rect.left) / this.state.zoom;
-        const canvasY = (ev.clientY - rect.top) / this.state.zoom;
-        this._arrastreTag = {
-            pointerId: ev.pointerId,
-            examenId,
-            desfaseX: canvasX - p.x,
-            desfaseY: canvasY - p.y,
-            movido: false,
-        };
-    }
-
-    alMoverTag(ev) {
-        const a = this._arrastreTag;
-        if (!a || ev.pointerId !== a.pointerId) {
-            return;
-        }
-        ev.preventDefault();
-        const lienzo = this.lienzoRef.el;
-        if (!lienzo) {
-            return;
-        }
-        const rect = lienzo.getBoundingClientRect();
-        const canvasX = (ev.clientX - rect.left) / this.state.zoom;
-        const canvasY = (ev.clientY - rect.top) / this.state.zoom;
-        const [x, y] = this._limitar(canvasX - a.desfaseX, canvasY - a.desfaseY);
-        a.movido = true;
-        this.state.posiciones[a.examenId] = { x, y };
-    }
-
-    async alSoltarTag(ev) {
-        const a = this._arrastreTag;
-        if (!a || ev.pointerId !== a.pointerId) {
-            return;
-        }
-        if (ev.target.hasPointerCapture(ev.pointerId)) {
-            ev.target.releasePointerCapture(ev.pointerId);
-        }
-        this._arrastreTag = null;
-        if (!a.movido) {
-            // Click simple (sin arrastre): trae al frente y abre - mismo
-            // mecanismo que abrir cualquier card, sin cambiar su x/y.
-            if (!this.state.tarjetasAbiertas.includes(a.examenId)) {
-                this.state.tarjetasAbiertas.push(a.examenId);
-            }
-            this._traerAlFrente(a.examenId);
-            return;
-        }
-        // Arrastre real: igual que alSoltarManija - persiste la nueva
-        // posición y NO trae al frente (el tag se movió junto con su
-        // card, que sigue cubierta si corresponde).
-        const p = this.state.posiciones[a.examenId];
         const x = p.x === 0 && p.y === 0 ? 1 : p.x;
         await this.orm.write("taekwondo.examen", [a.examenId], {
             posicion_x: x,
