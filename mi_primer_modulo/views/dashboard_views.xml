@@ -38,13 +38,22 @@
         <field name="target">current</field>
     </record>
 
+    <!-- Sin acción propia: el web client abre el primer hijo visible para
+         cada usuario (admin -> Dashboard, sinodal -> Eventos de Examen). -->
     <menuitem id="menu_mi_academia_root" name="Mi Academia"
-        action="action_taekwondo_dashboard"/>
+        groups="mi_primer_modulo.group_academia_instructor"/>
+
+    <!-- Quitar el atributo action de un menuitem no borra la acción ya
+         guardada al actualizar el módulo; hay que vaciarla explícitamente. -->
+    <record id="menu_mi_academia_root" model="ir.ui.menu">
+        <field name="action" eval="False"/>
+    </record>
 
     <menuitem id="menu_taekwondo_dashboard"
         name="Dashboard"
         parent="menu_mi_academia_root"
         action="action_taekwondo_dashboard"
-        sequence="1"/>
+        sequence="1"
+        groups="mi_primer_modulo.group_academia_admin"/>
 
 </odoo>

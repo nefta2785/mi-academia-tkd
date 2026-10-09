@@ -124,6 +124,7 @@
     <menuitem id="menu_taekwondo_examen"
         name="Exámenes"
         parent="mi_primer_modulo.menu_mi_academia_root"
-        action="action_taekwondo_examen"/>
+        action="action_taekwondo_examen"
+        groups="mi_primer_modulo.group_academia_admin"/>
 
 </odoo>
