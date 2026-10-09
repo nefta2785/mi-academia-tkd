@@ -1,0 +1,5 @@
+// Colores de la academia. Se carga con 'prepend' en
+// web._assets_primary_variables: las variables de web usan !default, así
+// que este archivo debe ir antes que web/static/src/scss/primary_variables.scss.
+$o-brand-odoo: #1C1C1C;     // barra superior
+$o-brand-primary: #1F4E9C;  // botones primarios (y $o-action, enlaces)

@@ -17,6 +17,9 @@
         'data/cron_mensualidad.xml',
     ],
     'assets': {
+        'web._assets_primary_variables': [
+            ('prepend', 'mi_primer_modulo/static/src/scss/primary_variables.scss'),
+        ],
         'web.assets_backend': [
             'mi_primer_modulo/static/src/js/**/*.js',
             'mi_primer_modulo/static/src/xml/**/*.xml',
